@@ -4,24 +4,29 @@ from rest_framework_simplejwt.tokens import RefreshToken, TokenError
 
 
 class UserSerializer(serializers.ModelSerializer):
-    """A serializer for the user model"""
+    """用户序列化器"""
     password = serializers.CharField(
         write_only=True,
-        max_length=100
+        max_length=100,
+        required=False
     )
 
     class Meta:
         model = get_user_model()
-        fields = ['name', 'password']
+        fields = ['id', 'name', 'phone', 'role', 'avatar', 'status', 'created_at', 'updated_at', 'password']
+        read_only_fields = ['id', 'created_at', 'updated_at']
 
     def create(self, validated_data):
-        return get_user_model().objects.create_user(**validated_data)
+        password = validated_data.pop('password', None)
+        user = get_user_model().objects.create_user(**validated_data)
+        if password:
+            user.set_password(password)
+            user.save()
+        return user
 
     def update(self, instance, validated_data):
         password = validated_data.pop('password', None)
-
         user = super().update(instance, validated_data)
-        print(validated_data)
         if password:
             user.set_password(password)
             user.save()

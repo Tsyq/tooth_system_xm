@@ -1,0 +1,1741 @@
+openapi: 3.0.0
+info:
+  title: 牙科管理系统 API
+  description: 牙科管理系统完整API接口文档（Postman兼容版）
+  version: 1.0.0
+servers:
+  - url: http://localhost:8000/api
+    description: 本地开发环境
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    # 通用响应模型
+    SuccessResponse:
+      type: object
+      properties:
+        code:
+          type: integer
+          example: 200
+        message:
+          type: string
+          example: "success"
+        data:
+          type: object
+    ErrorResponse:
+      type: object
+      properties:
+        code:
+          type: integer
+          example: 400
+        message:
+          type: string
+          example: "错误信息"
+        data:
+          type: null
+    # 用户模型
+    User:
+      type: object
+      properties:
+        id:
+          type: integer
+          description: 用户ID
+        name:
+          type: string
+          description: 姓名
+        phone:
+          type: string
+          description: 手机号（11位）
+        role:
+          type: string
+          enum: ["user", "doctor", "admin"]
+          description: 角色
+        avatar:
+          type: string
+          nullable: true
+          description: 头像URL
+        status:
+          type: string
+          enum: ["active", "pending", "inactive"]
+          description: 状态
+        created_at:
+          type: string
+          format: date-time
+          description: 创建时间
+        updated_at:
+          type: string
+          format: date-time
+          description: 更新时间
+    # 医院模型
+    Hospital:
+      type: object
+      properties:
+        id:
+          type: integer
+          description: 医院ID
+        name:
+          type: string
+          description: 医院名称
+        address:
+          type: string
+          description: 地址
+        phone:
+          type: string
+          description: 联系电话
+        latitude:
+          type: number
+          format: float
+          description: 纬度
+        longitude:
+          type: number
+          format: float
+          description: 经度
+        image:
+          type: string
+          nullable: true
+          description: 图片URL
+        rating:
+          type: number
+          format: float
+          description: 评分（0-5）
+        review_count:
+          type: integer
+          description: 评价数量
+        description:
+          type: string
+          description: 简介
+        business_hours:
+          type: string
+          description: 营业时间
+        created_at:
+          type: string
+          format: date-time
+          description: 创建时间
+        updated_at:
+          type: string
+          format: date-time
+          description: 更新时间
+    # 医生模型
+    Doctor:
+      type: object
+      properties:
+        id:
+          type: integer
+          description: 医生ID（业务主键）
+        user_id:
+          type: integer
+          description: 关联用户ID
+        name:
+          type: string
+          description: 姓名
+        title:
+          type: string
+          description: 职称
+        specialty:
+          type: string
+          description: 专科
+        hospital_id:
+          type: integer
+          description: 所属医院ID
+        avatar:
+          type: string
+          nullable: true
+          description: 头像URL
+        score:
+          type: number
+          format: float
+          description: 评分（0-5）
+        reviews:
+          type: integer
+          description: 评价数量
+        introduction:
+          type: string
+          description: 简介
+        education:
+          type: string
+          description: 学历
+        experience:
+          type: string
+          description: 经验
+        is_online:
+          type: boolean
+          description: 是否在线
+        is_admin:
+          type: boolean
+          description: 是否为管理员
+        created_at:
+          type: string
+          format: date-time
+          description: 创建时间
+        updated_at:
+          type: string
+          format: date-time
+          description: 更新时间
+    # 预约模型
+    Appointment:
+      type: object
+      properties:
+        id:
+          type: integer
+          description: 预约ID
+        user_id:
+          type: integer
+          description: 用户ID
+        doctor_id:
+          type: integer
+          description: 医生ID
+        hospital_id:
+          type: integer
+          description: 医院ID
+        appointment_date:
+          type: string
+          format: date
+          description: 预约日期
+        appointment_time:
+          type: string
+          description: 预约时间（HH:mm）
+        symptoms:
+          type: string
+          nullable: true
+          description: 症状描述
+        patient_name:
+          type: string
+          description: 患者姓名
+        patient_phone:
+          type: string
+          description: 患者电话
+        status:
+          type: string
+          enum: ["upcoming", "completed", "cancelled", "checked-in"]
+          description: 预约状态
+        checkin_time:
+          type: string
+          format: date-time
+          nullable: true
+          description: 签到时间
+        created_at:
+          type: string
+          format: date-time
+          description: 创建时间
+        updated_at:
+          type: string
+          format: date-time
+          description: 更新时间
+    # 问诊会话模型
+    Consultation:
+      type: object
+      properties:
+        id:
+          type: integer
+          description: 会话ID
+        user_id:
+          type: integer
+          description: 用户ID
+        doctor_id:
+          type: integer
+          description: 医生ID
+        status:
+          type: string
+          enum: ["active", "closed"]
+          description: 会话状态
+        created_at:
+          type: string
+          format: date-time
+          description: 创建时间
+        updated_at:
+          type: string
+          format: date-time
+          description: 更新时间
+    # 消息模型
+    Message:
+      type: object
+      properties:
+        id:
+          type: integer
+          description: 消息ID
+        consultation_id:
+          type: integer
+          description: 会话ID
+        sender:
+          type: string
+          enum: ["user", "doctor"]
+          description: 发送者
+        text:
+          type: string
+          description: 消息内容
+        time:
+          type: string
+          format: date-time
+          description: 发送时间
+        created_at:
+          type: string
+          format: date-time
+          description: 创建时间
+    # 病历模型
+    Record:
+      type: object
+      properties:
+        id:
+          type: integer
+          description: 病历ID
+        user_id:
+          type: integer
+          description: 用户ID
+        doctor_id:
+          type: integer
+          description: 医生ID
+        hospital_id:
+          type: integer
+          description: 医院ID
+        date:
+          type: string
+          format: date
+          description: 就诊日期
+        diagnosis:
+          type: string
+          description: 诊断
+        content:
+          type: string
+          description: 病历内容
+        treatment:
+          type: string
+          nullable: true
+          description: 治疗方案
+        medications:
+          type: array
+          items:
+            type: string
+          nullable: true
+          description: 药物列表
+        result_image:
+          type: string
+          nullable: true
+          description: 结果图片URL
+        rated:
+          type: boolean
+          description: 是否已评价
+        rating:
+          type: integer
+          nullable: true
+          description: 评分（1-5）
+        comment:
+          type: string
+          nullable: true
+          description: 评价内容
+        created_at:
+          type: string
+          format: date-time
+          description: 创建时间
+        updated_at:
+          type: string
+          format: date-time
+          description: 更新时间
+    # AI问询请求模型
+    AIInquiryRequest:
+      type: object
+      required: [question]
+      properties:
+        question:
+          type: string
+          description: 问题内容
+        context:
+          type: object
+          nullable: true
+          properties:
+            symptoms:
+              type: string
+              description: 症状
+            duration:
+              type: string
+              description: 持续时间
+            location:
+              type: string
+              description: 疼痛位置
+    # 图片上传请求模型
+    ImageUploadRequest:
+      type: object
+      required: [file]
+      properties:
+        file:
+          type: string
+          format: binary
+          description: 图片文件
+        type:
+          type: string
+          enum: ["avatar", "record", "hospital", "other"]
+          default: "other"
+          description: 图片类型
+    # 首页统计模型
+    HomeStatistics:
+      type: object
+      properties:
+        cooperation_clinics:
+          type: integer
+          description: 合作诊所数量
+        appointment_efficiency:
+          type: integer
+          description: 预约效率提升百分比
+        revenue_growth:
+          type: integer
+          description: 收入增长百分比
+        patient_satisfaction:
+          type: integer
+          description: 患者满意度百分比
+        today_patients:
+          type: integer
+          description: 今日接诊数
+        online_doctors:
+          type: integer
+          description: 在线医生数
+
+paths:
+  # ====================== 用户认证模块 ======================
+  /auth/register:
+    post:
+      summary: 用户注册
+      tags: [用户认证]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [role, name, phone, password]
+              properties:
+                role:
+                  type: string
+                  enum: ["user", "doctor"]
+                  description: 角色
+                name:
+                  type: string
+                  description: 姓名
+                phone:
+                  type: string
+                  description: 手机号（11位）
+                password:
+                  type: string
+                  description: 密码
+      responses:
+        '200':
+          description: 注册成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          user_id:
+                            type: integer
+                          name:
+                            type: string
+                          phone:
+                            type: string
+                          role:
+                            type: string
+                          status:
+                            type: string
+                            enum: ["active", "pending"]
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /auth/login:
+    post:
+      summary: 用户登录
+      tags: [用户认证]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [phone, password, captcha_id, captcha]
+              properties:
+                phone:
+                  type: string
+                  description: 手机号
+                password:
+                  type: string
+                  description: 密码
+                captcha_id:
+                  type: string
+                  description: 验证码ID
+                captcha:
+                  type: string
+                  description: 验证码答案
+      responses:
+        '200':
+          description: 登录成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          token:
+                            type: string
+                          refresh_token:
+                            type: string
+                          user:
+                            $ref: '#/components/schemas/User'
+                          expires_in:
+                            type: integer
+        '400':
+          description: 登录失败（验证码错误/账号密码错误）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /auth/captcha:
+    get:
+      summary: 获取图形验证码
+      tags: [用户认证]
+      responses:
+        '200':
+          description: 获取成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          captcha_id:
+                            type: string
+                          captcha_image:
+                            type: string
+
+  /auth/refresh:
+    post:
+      summary: 刷新Token
+      tags: [用户认证]
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: 刷新成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          token:
+                            type: string
+                          expires_in:
+                            type: integer
+
+  /auth/logout:
+    post:
+      summary: 用户登出
+      tags: [用户认证]
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: 登出成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  /auth/me:
+    get:
+      summary: 获取当前用户信息
+      tags: [用户认证]
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: 获取成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/User'
+    put:
+      summary: 更新用户信息
+      tags: [用户认证]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  description: 姓名
+                avatar:
+                  type: string
+                  description: 头像URL
+      responses:
+        '200':
+          description: 更新成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  /auth/change-password:
+    post:
+      summary: 修改密码
+      tags: [用户认证]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [old_password, new_password]
+              properties:
+                old_password:
+                  type: string
+                  description: 旧密码
+                new_password:
+                  type: string
+                  description: 新密码
+      responses:
+        '200':
+          description: 修改成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '400':
+          description: 旧密码错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ====================== 医院管理模块 ======================
+  /hospitals:
+    get:
+      summary: 获取医院列表
+      tags: [医院管理]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: filter
+          in: query
+          schema:
+            type: string
+            enum: ["all", "near", "frequent"]
+            default: "all"
+          description: 筛选类型
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+          description: 页码
+        - name: page_size
+          in: query
+          schema:
+            type: integer
+            default: 10
+          description: 每页数量
+        - name: latitude
+          in: query
+          schema:
+            type: number
+            format: float
+          description: 纬度
+        - name: longitude
+          in: query
+          schema:
+            type: number
+            format: float
+          description: 经度
+      responses:
+        '200':
+          description: 获取成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          count:
+                            type: integer
+                          page:
+                            type: integer
+                          page_size:
+                            type: integer
+                          results:
+                            type: array
+                            items:
+                              $ref: '#/components/schemas/Hospital'
+
+  /hospitals/{hospital_id}:
+    get:
+      summary: 获取医院详情
+      tags: [医院管理]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: hospital_id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: 医院ID
+      responses:
+        '200':
+          description: 获取成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Hospital'
+        '404':
+          description: 医院不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ====================== 医生管理模块 ======================
+  /doctors:
+    get:
+      summary: 获取医生列表
+      tags: [医生管理]
+      parameters:
+        - name: view
+          in: query
+          schema:
+            type: string
+            enum: ["list", "rank"]
+            default: "list"
+          description: 视图类型
+        - name: hospital_id
+          in: query
+          schema:
+            type: integer
+          description: 医院ID
+        - name: specialty
+          in: query
+          schema:
+            type: string
+          description: 专科
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+          description: 页码
+        - name: page_size
+          in: query
+          schema:
+            type: integer
+            default: 10
+          description: 每页数量
+      responses:
+        '200':
+          description: 获取成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          count:
+                            type: integer
+                          page:
+                            type: integer
+                          page_size:
+                            type: integer
+                          results:
+                            type: array
+                            items:
+                              $ref: '#/components/schemas/Doctor'
+
+  /doctors/{doctor_id}:
+    get:
+      summary: 获取医生详情
+      tags: [医生管理]
+      parameters:
+        - name: doctor_id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: 医生ID
+      responses:
+        '200':
+          description: 获取成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Doctor'
+        '404':
+          description: 医生不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /doctors/me:
+    put:
+      summary: 医生端更新个人信息
+      tags: [医生管理]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                title:
+                  type: string
+                specialty:
+                  type: string
+                introduction:
+                  type: string
+                education:
+                  type: string
+                experience:
+                  type: string
+                avatar:
+                  type: string
+      responses:
+        '200':
+          description: 更新成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  /doctors/me/online-status:
+    post:
+      summary: 医生端设置在线状态
+      tags: [医生管理]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [is_online]
+              properties:
+                is_online:
+                  type: boolean
+                  description: 是否在线
+      responses:
+        '200':
+          description: 状态更新成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  # ====================== 预约管理模块 ======================
+  /appointments:
+    post:
+      summary: 创建预约
+      tags: [预约管理]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [doctor_id, hospital_id, appointment_date, appointment_time]
+              properties:
+                doctor_id:
+                  type: integer
+                  description: 医生ID
+                hospital_id:
+                  type: integer
+                  description: 医院ID
+                appointment_date:
+                  type: string
+                  format: date
+                  description: 预约日期
+                appointment_time:
+                  type: string
+                  description: 预约时间（HH:mm）
+                symptoms:
+                  type: string
+                  description: 症状描述
+                patient_name:
+                  type: string
+                  description: 患者姓名（默认当前用户姓名）
+                patient_phone:
+                  type: string
+                  description: 患者电话（默认当前用户电话）
+      responses:
+        '200':
+          description: 预约成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Appointment'
+        '409':
+          description: 预约时间已被占用
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    get:
+      summary: 获取预约列表
+      tags: [预约管理]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: ["upcoming", "completed", "cancelled", "checked-in"]
+          description: 预约状态
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+          description: 页码
+        - name: page_size
+          in: query
+          schema:
+            type: integer
+            default: 10
+          description: 每页数量
+      responses:
+        '200':
+          description: 获取成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          count:
+                            type: integer
+                          page:
+                            type: integer
+                          page_size:
+                            type: integer
+                          results:
+                            type: array
+                            items:
+                              $ref: '#/components/schemas/Appointment'
+
+  /appointments/{appointment_id}/cancel:
+    post:
+      summary: 取消预约
+      tags: [预约管理]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: appointment_id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: 预约ID
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+                  description: 取消原因
+      responses:
+        '200':
+          description: 取消成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '400':
+          description: 不符合取消条件
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /appointments/{appointment_id}:
+    put:
+      summary: 预约改期
+      tags: [预约管理]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: appointment_id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: 预约ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                appointment_date:
+                  type: string
+                  format: date
+                  description: 新预约日期
+                appointment_time:
+                  type: string
+                  description: 新预约时间
+      responses:
+        '200':
+          description: 改期成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '409':
+          description: 新时间段已被占用
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /appointments/{appointment_id}/checkin:
+    post:
+      summary: 预约签到
+      tags: [预约管理]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: appointment_id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: 预约ID
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                latitude:
+                  type: number
+                  format: float
+                  description: 签到纬度
+                longitude:
+                  type: number
+                  format: float
+                  description: 签到经度
+      responses:
+        '200':
+          description: 签到成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '400':
+          description: 不在签到时间窗口内
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /appointments/{appointment_id}/complete:
+    post:
+      summary: 医生端完成预约
+      tags: [预约管理]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: appointment_id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: 预约ID
+      responses:
+        '200':
+          description: 完成成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '403':
+          description: 无权限操作
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ====================== 在线问诊模块 ======================
+  /consultations:
+    post:
+      summary: 创建问诊会话
+      tags: [在线问诊]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [doctor_id]
+              properties:
+                doctor_id:
+                  type: integer
+                  description: 医生ID
+                initial_message:
+                  type: string
+                  description: 初始消息
+      responses:
+        '200':
+          description: 会话创建成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Consultation'
+    get:
+      summary: 获取问诊会话列表
+      tags: [在线问诊]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: ["active", "closed"]
+          description: 会话状态
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+          description: 页码
+        - name: page_size
+          in: query
+          schema:
+            type: integer
+            default: 10
+          description: 每页数量
+      responses:
+        '200':
+          description: 获取成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          count:
+                            type: integer
+                          page:
+                            type: integer
+                          page_size:
+                            type: integer
+                          results:
+                            type: array
+                            items:
+                              $ref: '#/components/schemas/Consultation'
+
+  /consultations/{consultation_id}:
+    get:
+      summary: 获取问诊会话详情（含消息列表）
+      tags: [在线问诊]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: consultation_id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: 会话ID
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+          description: 消息页码
+        - name: page_size
+          in: query
+          schema:
+            type: integer
+            default: 20
+          description: 每页消息数量
+      responses:
+        '200':
+          description: 获取成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          id:
+                            type: integer
+                          doctor:
+                            $ref: '#/components/schemas/Doctor'
+                          status:
+                            type: string
+                          messages:
+                            type: object
+                            properties:
+                              count:
+                                type: integer
+                              page:
+                                type: integer
+                              page_size:
+                                type: integer
+                              results:
+                                type: array
+                                items:
+                                  $ref: '#/components/schemas/Message'
+                          created_at:
+                            type: string
+                            format: date-time
+
+  /consultations/{consultation_id}/messages:
+    post:
+      summary: 发送消息
+      tags: [在线问诊]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: consultation_id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: 会话ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [text]
+              properties:
+                text:
+                  type: string
+                  description: 消息内容
+      responses:
+        '200':
+          description: 发送成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Message'
+
+  /consultations/{consultation_id}/close:
+    post:
+      summary: 关闭问诊会话
+      tags: [在线问诊]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: consultation_id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: 会话ID
+      responses:
+        '200':
+          description: 关闭成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  # ====================== 病历管理模块 ======================
+  /records:
+    get:
+      summary: 获取病历列表
+      tags: [病历管理]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+          description: 页码
+        - name: page_size
+          in: query
+          schema:
+            type: integer
+            default: 10
+          description: 每页数量
+        - name: date_from
+          in: query
+          schema:
+            type: string
+            format: date
+          description: 开始日期
+        - name: date_to
+          in: query
+          schema:
+            type: string
+            format: date
+          description: 结束日期
+        - name: patient_name
+          in: query
+          schema:
+            type: string
+          description: 患者姓名（医生端可用）
+        - name: doctor_name
+          in: query
+          schema:
+            type: string
+          description: 医生姓名
+      responses:
+        '200':
+          description: 获取成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          count:
+                            type: integer
+                          page:
+                            type: integer
+                          page_size:
+                            type: integer
+                          results:
+                            type: array
+                            items:
+                              $ref: '#/components/schemas/Record'
+    post:
+      summary: 医生端创建病历
+      tags: [病历管理]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [user_id, hospital_id, date, diagnosis, content]
+              properties:
+                user_id:
+                  type: integer
+                  description: 患者用户ID
+                hospital_id:
+                  type: integer
+                  description: 医院ID
+                date:
+                  type: string
+                  format: date
+                  description: 就诊日期
+                diagnosis:
+                  type: string
+                  description: 诊断
+                content:
+                  type: string
+                  description: 病历内容
+                treatment:
+                  type: string
+                  description: 治疗方案
+                medications:
+                  type: array
+                  items:
+                    type: string
+                  description: 药物列表
+                result_image:
+                  type: string
+                  description: 病历图片URL
+      responses:
+        '200':
+          description: 创建成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Record'
+        '403':
+          description: 无权限创建
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /records/{record_id}:
+    get:
+      summary: 获取病历详情
+      tags: [病历管理]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: record_id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: 病历ID
+      responses:
+        '200':
+          description: 获取成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Record'
+        '404':
+          description: 病历不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    put:
+      summary: 医生端更新病历
+      tags: [病历管理]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: record_id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: 病历ID
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                date:
+                  type: string
+                  format: date
+                  description: 就诊日期
+                diagnosis:
+                  type: string
+                  description: 诊断
+                content:
+                  type: string
+                  description: 病历内容
+                treatment:
+                  type: string
+                  description: 治疗方案
+                medications:
+                  type: array
+                  items:
+                    type: string
+                  description: 药物列表
+                result_image:
+                  type: string
+                  description: 病历图片URL
+      responses:
+        '200':
+          description: 更新成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '403':
+          description: 无权限更新
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /records/{record_id}/rating:
+    post:
+      summary: 评价就诊
+      tags: [病历管理]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: record_id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: 病历ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [rating]
+              properties:
+                rating:
+                  type: integer
+                  minimum: 1
+                  maximum: 5
+                  description: 评分
+                comment:
+                  type: string
+                  description: 评价内容
+      responses:
+        '200':
+          description: 评价成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  /doctors/patients/records:
+    get:
+      summary: 医生端获取患者病历列表
+      tags: [病历管理]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: patient_id
+          in: query
+          schema:
+            type: integer
+          description: 患者用户ID
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+          description: 页码
+        - name: page_size
+          in: query
+          schema:
+            type: integer
+            default: 10
+          description: 每页数量
+        - name: date_from
+          in: query
+          schema:
+            type: string
+            format: date
+          description: 开始日期
+        - name: date_to
+          in: query
+          schema:
+            type: string
+            format: date
+          description: 结束日期
+        - name: patient_name
+          in: query
+          schema:
+            type: string
+          description: 患者姓名
+        - name: doctor_name
+          in: query
+          schema:
+            type: string
+          description: 医生姓名
+      responses:
+        '200':
+          description: 获取成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          count:
+                            type: integer
+                          page:
+                            type: integer
+                          page_size:
+                            type: integer
+                          results:
+                            type: array
+                            items:
+                              $ref: '#/components/schemas/Record'
+
+  # ====================== AI问询模块 ======================
+  /ai/inquiry:
+    post:
+      summary: AI问询
+      tags: [AI问询]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AIInquiryRequest'
+      responses:
+        '200':
+          description: 问询成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          id:
+                            type: string
+                          question:
+                            type: string
+                          answer:
+                            type: string
+                          suggestions:
+                            type: array
+                            items:
+                              type: string
+                          created_at:
+                            type: string
+                            format: date-time
+
+  # ====================== 统计数据模块 ======================
+  /statistics/home:
+    get:
+      summary: 获取首页统计数据
+      tags: [统计数据]
+      responses:
+        '200':
+          description: 获取成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/HomeStatistics'
+
+  # ====================== 文件上传模块 ======================
+  /upload/image:
+    post:
+      summary: 上传图片
+      tags: [文件上传]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ImageUploadRequest'
+      responses:
+        '200':
+          description: 上传成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          url:
+                            type: string
+                            description: 图片URL
+                          filename:
+                            type: string
+                            description: 文件名
+                          size:
+                            type: integer
+                            description: 文件大小（字节）

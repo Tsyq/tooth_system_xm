@@ -1,6 +1,11 @@
-Django
-djangorestframework
-python-decouple
-flake8
-drf-spectacular
-djangorestframework-simplejwt[crypto]
+Django==5.2.9
+djangorestframework==3.16.1
+python-decouple==3.8
+flake8==7.3.0
+drf-spectacular==0.29.0
+djangorestframework-simplejwt[crypto]==5.5.1
+mysqlclient
+Pillow
+django-cors-headers
+django-filter
+
