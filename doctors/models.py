@@ -20,12 +20,12 @@ class Doctor(models.Model):
     education = models.CharField('学历', max_length=100, blank=True)
     experience = models.CharField('经验', max_length=200, blank=True)
     is_online = models.BooleanField('是否在线', default=False)
-    is_super_doctor = models.BooleanField('是否为超级医生', default=False)
+    is_admin = models.BooleanField('是否为管理员', default=False)
     created_at = models.DateTimeField('创建时间', auto_now_add=True)
     updated_at = models.DateTimeField('更新时间', auto_now=True)
     
     class Meta:
-        db_table = 'doctors_doctor'
+        db_table = 'doctor'
         verbose_name = '医生'
         verbose_name_plural = '医生'
         ordering = ['-score', '-reviews']

@@ -20,7 +20,7 @@ class Hospital(models.Model):
     updated_at = models.DateTimeField('更新时间', auto_now=True)
     
     class Meta:
-        db_table = 'hospitals_hospital'
+        db_table = 'hospital'
         verbose_name = '医院'
         verbose_name_plural = '医院'
         ordering = ['-rating', '-review_count']

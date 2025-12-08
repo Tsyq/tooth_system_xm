@@ -14,7 +14,7 @@ class Inquiry(models.Model):
     created_at = models.DateTimeField('创建时间', auto_now_add=True)
     
     class Meta:
-        db_table = 'ai_inquiry_inquiry'
+        db_table = 'ai_inquiry'
         verbose_name = 'AI问询'
         verbose_name_plural = 'AI问询'
         ordering = ['-created_at']

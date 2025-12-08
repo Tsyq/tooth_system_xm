@@ -20,7 +20,7 @@ class Consultation(models.Model):
     updated_at = models.DateTimeField('更新时间', auto_now=True)
     
     class Meta:
-        db_table = 'consultations_consultation'
+        db_table = 'consultation'
         verbose_name = '问诊会话'
         verbose_name_plural = '问诊会话'
         ordering = ['-created_at']
@@ -43,7 +43,7 @@ class Message(models.Model):
     created_at = models.DateTimeField('创建时间', auto_now_add=True)
     
     class Meta:
-        db_table = 'consultations_message'
+        db_table = 'consultation_message'
         verbose_name = '消息'
         verbose_name_plural = '消息'
         ordering = ['-time']

@@ -30,7 +30,7 @@ class Appointment(models.Model):
     updated_at = models.DateTimeField('更新时间', auto_now=True)
     
     class Meta:
-        db_table = 'appointments_appointment'
+        db_table = 'appointment'
         verbose_name = '预约'
         verbose_name_plural = '预约'
         ordering = ['-appointment_date', '-appointment_time']

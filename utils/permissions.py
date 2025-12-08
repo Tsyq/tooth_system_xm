@@ -31,7 +31,7 @@ class IsAdminDoctor(permissions.BasePermission):
         if not (request.user and request.user.is_authenticated and request.user.role == 'doctor'):
             return False
         try:
-            return request.user.doctor_profile.is_super_doctor
+            return request.user.doctor_profile.is_admin
         except:
             return False
 

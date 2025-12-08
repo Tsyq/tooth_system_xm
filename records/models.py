@@ -27,7 +27,7 @@ class Record(models.Model):
     updated_at = models.DateTimeField('更新时间', auto_now=True)
     
     class Meta:
-        db_table = 'records_record'
+        db_table = 'record'
         verbose_name = '病历'
         verbose_name_plural = '病历'
         ordering = ['-created_at']
