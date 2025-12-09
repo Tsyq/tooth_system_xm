@@ -58,6 +58,40 @@ class UserSerializer(serializers.ModelSerializer):
         return user
 
 
+class UserLoginSerializer(serializers.Serializer):
+    """用户登录序列化器"""
+    phone = serializers.CharField(required=True, help_text='手机号')
+    password = serializers.CharField(required=True, write_only=True, help_text='密码')
+    captcha_id = serializers.CharField(required=True, help_text='验证码ID')
+    captcha = serializers.CharField(required=True, help_text='验证码答案')
+    
+    def validate(self, attrs):
+        """验证登录信息"""
+        from utils.captcha import verify_captcha
+        from django.contrib.auth import authenticate
+        
+        phone = attrs.get('phone')
+        password = attrs.get('password')
+        captcha_id = attrs.get('captcha_id')
+        captcha = attrs.get('captcha')
+        
+        # 1. 验证验证码
+        if not verify_captcha(captcha_id, captcha):
+            raise serializers.ValidationError({'captcha': '验证码错误或已过期'})
+        
+        # 2. 验证用户名和密码
+        user = authenticate(request=self.context.get('request'), username=phone, password=password)
+        
+        if not user:
+            raise serializers.ValidationError({'password': '手机号或密码错误'})
+        
+        if not user.is_active:
+            raise serializers.ValidationError({'phone': '账号已被禁用'})
+        
+        attrs['user'] = user
+        return attrs
+
+
 class UserLogOutSerializer(serializers.Serializer):
     "A serializer for validate data for Logging out user"
     refresh = serializers.CharField(required=True,
