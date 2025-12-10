@@ -7,6 +7,7 @@ from .views import (
     LoginView,
     RefreshTokenView,
     ChangePasswordView,
+    SendEmailCodeView,
 )
 
 urlpatterns = [
@@ -18,4 +19,5 @@ urlpatterns = [
     path('me/', UpdateRetrieveUser.as_view(), name='me'),               # 获取/更新当前用户信息
     path('captcha/', CaptchaView.as_view(), name='captcha'),          # 获取图形验证码
     path('change-password/', ChangePasswordView.as_view(), name='change_password'), # 修改密码
+    path('send-email-code/', SendEmailCodeView.as_view(), name='send_email_code'), # 发送邮箱验证码
 ]

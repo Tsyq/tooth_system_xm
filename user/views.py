@@ -10,6 +10,8 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import AllowAny
 from utils.response import success_response, error_response
+from django.core.mail import send_mail
+from django.conf import settings
 from django.contrib.auth import get_user_model
 
 
@@ -309,3 +311,47 @@ class ChangePasswordView(APIView):
                 code=400,
                 data=None
             )
+
+
+class SendEmailCodeView(APIView):
+    """
+    发送邮箱验证码（用于修改密码）
+    要求已登录用户，且邮箱与账号绑定的邮箱一致
+    """
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        user = request.user
+        email = request.data.get('email') or getattr(user, 'email', None)
+
+        if not email:
+            return error_response(message='邮箱不能为空', code=400)
+
+        if not getattr(user, 'email', None):
+            return error_response(message='当前账号未绑定邮箱，请先绑定后再发送验证码', code=400)
+
+        if email != getattr(user, 'email', None):
+            return error_response(message='邮箱与当前账号不一致', code=400)
+
+        # 生成 6 位验证码
+        import random
+        code = f'{random.randint(0, 999999):06d}'
+
+        # 写入缓存 5 分钟
+        from django.core.cache import cache
+        cache.set(f'email_code_{email}', code, timeout=300)
+
+        # 发送邮件（需要在 settings 中配置 EMAIL_HOST 等）
+        subject = '密码修改验证码'
+        message = f'您的验证码是：{code}，5分钟内有效。'
+        try:
+            send_mail(subject, message, getattr(settings, 'DEFAULT_FROM_EMAIL', None), [email])
+        except Exception as e:
+            return error_response(message=f'邮件发送失败: {e}', code=400)
+
+        return success_response(
+            data={'expires_in': 300},
+            message='验证码已发送',
+            code=200
+        )

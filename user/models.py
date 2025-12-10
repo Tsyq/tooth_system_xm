@@ -40,6 +40,7 @@ class User(AbstractBaseUser, PermissionsMixin):
     ]
     
     phone = models.CharField('手机号', max_length=11, unique=True)
+    email = models.EmailField('邮箱', max_length=100, blank=True, null=True)
     name = models.CharField('姓名', max_length=50)
     role = models.CharField('角色', max_length=10, choices=ROLE_CHOICES, default='user')
     avatar = models.URLField('头像', blank=True, null=True)

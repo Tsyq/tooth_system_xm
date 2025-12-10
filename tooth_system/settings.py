@@ -280,3 +280,12 @@ CACHES = {
         'LOCATION': 'unique-snowflake',
     }
 }
+
+MAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
+EMAIL_USE_TLS = False  # 465端口使用SSL，所以TLS设为False
+EMAIL_USE_SSL = True   # 465端口需要开启SSL
+EMAIL_HOST = "smtp.163.com"
+EMAIL_PORT = 465
+EMAIL_HOST_USER = "19339867822@163.com"  # 发件人邮箱
+EMAIL_HOST_PASSWORD = "LAkAQD5GAZL9Qy2Q"  #授权码
+DEFAULT_FROM_EMAIL = EMAIL_HOST_USER #发件人必须与授权人保持一致

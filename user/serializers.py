@@ -15,7 +15,7 @@ class UserSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = get_user_model()
-        fields = ['id', 'name', 'phone', 'role', 'avatar', 'status', 'created_at', 'updated_at', 'password']
+        fields = ['id', 'name', 'phone', 'email', 'role', 'avatar', 'status', 'created_at', 'updated_at', 'password']
         read_only_fields = ['id', 'created_at', 'updated_at', 'status']  # status 由系统根据 role 自动设置
 
     def validate_phone(self, value):
@@ -133,10 +133,10 @@ class UserLogOutSerializer(serializers.Serializer):
 
 
 class ChangePasswordSerializer(serializers.Serializer):
-    """修改密码序列化器（强制校验手机号 + 验证码）"""
+    """修改密码序列化器（强制校验邮箱 + 验证码）"""
     old_password = serializers.CharField(required=True, write_only=True, min_length=6)
     new_password = serializers.CharField(required=True, write_only=True, min_length=6)
-    phone = serializers.CharField(required=True, write_only=True)
+    email = serializers.EmailField(required=True, write_only=True)
     code = serializers.CharField(required=True, write_only=True)
 
     def validate_old_password(self, value):
@@ -147,14 +147,16 @@ class ChangePasswordSerializer(serializers.Serializer):
 
     def validate(self, attrs):
         user = self.context['request'].user
-        phone = attrs.get('phone')
+        email = attrs.get('email')
         code = attrs.get('code')
 
-        # 强制校验手机号与验证码
-        if phone != user.phone:
-            raise serializers.ValidationError({'phone': '手机号与当前账号不一致'})
+        # 强制校验邮箱与验证码
+        if not getattr(user, 'email', None):
+            raise serializers.ValidationError({'email': '当前账号未绑定邮箱，请先绑定后再获取验证码'})
+        if email != getattr(user, 'email', None):
+            raise serializers.ValidationError({'email': '邮箱与当前账号不一致'})
         from django.core.cache import cache
-        cache_code = cache.get(f'sms_code_{phone}')
+        cache_code = cache.get(f'email_code_{email}')
         if not cache_code or str(cache_code) != str(code):
             raise serializers.ValidationError({'code': '验证码错误或已过期'})
 
