@@ -204,9 +204,17 @@ class Logout(APIView):
         try:
             refresh_token = RefreshToken(refresh_token_string)
             refresh_token.blacklist()
-            return Response({'message': 'Successfully logged out'}, status=200)
-        except Exception:
-            return Response({'error': 'Failed to blacklist token'}, status=400)
+            return success_response(
+                data=None,
+                message='退出成功',
+                code=200
+            )
+        except Exception as e:
+            return error_response(
+                message=f'注销失败: {str(e)}',
+                code=400,
+                data=None
+            )
 
 
 class CaptchaView(APIView):
