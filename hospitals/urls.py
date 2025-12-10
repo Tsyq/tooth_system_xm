@@ -1,17 +1,11 @@
 """
-医院URL配置
+医院URL配置（显式路由，风格与 `user/urls.py` 保持一致）
 """
-from django.urls import path, include
-from rest_framework.routers import DefaultRouter
-from .views import HospitalViewSet
-
-router = DefaultRouter()
-router.register(r'', HospitalViewSet, basename='hospital')
+from django.urls import path
+from .views import HospitalList, HospitalDetail
 
 urlpatterns = [
-    path('', include(router.urls)),
-    # 路由已通过ViewSet自动注册：
-    # GET /hospitals/ - 获取医院列表
-    # GET /hospitals/{hospital_id}/ - 获取医院详情
+    path('', HospitalList.as_view(), name='hospital-list'),
+    path('<int:pk>/', HospitalDetail.as_view(), name='hospital-detail'),
 ]
 
