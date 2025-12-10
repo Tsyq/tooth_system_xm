@@ -3,6 +3,8 @@ from .serializers import UserSerializer, UserLogOutSerializer, UserLoginSerializ
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework.permissions import IsAuthenticated
 from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework_simplejwt.views import TokenRefreshView
+from rest_framework_simplejwt.settings import api_settings
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import AllowAny
@@ -93,7 +95,6 @@ class LoginView(APIView):
             refresh_token = str(refresh)
             
             # 计算过期时间（秒）
-            from rest_framework_simplejwt.settings import api_settings
             expires_in = int(api_settings.ACCESS_TOKEN_LIFETIME.total_seconds())
             
             # 构建用户信息（使用序列化器确保格式一致）
@@ -131,6 +132,48 @@ class LoginView(APIView):
                 else:
                     error_message = str(e.detail)
             
+            return error_response(
+                message=error_message,
+                code=400,
+                data=None
+            )
+
+
+class RefreshTokenView(TokenRefreshView):
+    """
+    刷新Access Token并轮换Refresh Token
+    """
+    permission_classes = [AllowAny]
+
+    def post(self, request, *args, **kwargs):
+        try:
+            serializer = self.get_serializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+
+            token_data = serializer.validated_data
+            access_token = token_data.get('access')
+            refresh_token = token_data.get('refresh') or request.data.get('refresh')
+
+            response_data = {
+                'token': access_token,
+                'refresh_token': refresh_token,
+                'expires_in': int(api_settings.ACCESS_TOKEN_LIFETIME.total_seconds()),
+            }
+
+            return success_response(
+                data=response_data,
+                message='刷新成功',
+                code=200
+            )
+        except Exception as e:
+            error_message = str(e)
+            if hasattr(e, 'detail'):
+                detail = e.detail
+                if isinstance(detail, dict) and detail:
+                    error_message = next(iter(detail.values()))
+                else:
+                    error_message = str(detail)
+
             return error_response(
                 message=error_message,
                 code=400,
