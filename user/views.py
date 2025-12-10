@@ -1,5 +1,6 @@
 from rest_framework import generics, status
 from .serializers import UserSerializer, UserLogOutSerializer, UserLoginSerializer
+from .serializers import ChangePasswordSerializer
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework.permissions import IsAuthenticated
 from rest_framework_simplejwt.tokens import RefreshToken
@@ -20,53 +21,29 @@ class CreateUser(generics.CreateAPIView):
     permission_classes = [AllowAny]
 
     def create(self, request, *args, **kwargs):
-
         serializer = self.get_serializer(data=request.data)
-        
-        try:
-            # 验证数据
-            serializer.is_valid(raise_exception=True)
-            
-            # 创建用户
-            user = serializer.save()
-            
-            # 构建返回数据（符合接口文档格式）
-            response_data = {
-                'user_id': user.id,
-                'name': user.name,
-                'phone': user.phone,
-                'role': user.role,
-                'status': user.status,
-            }
-            
-            # 使用统一响应格式
-            return success_response(
-                data=response_data,
-                message='注册成功',
-                code=200
-            )
-            
-        except Exception as e:
-            # 处理异常情况
-            error_message = str(e)
-            
-            # 如果是验证错误，提取更友好的错误信息
-            if hasattr(e, 'detail'):
-                if isinstance(e.detail, dict):
-                    # 提取第一个字段错误
-                    first_error = list(e.detail.values())[0]
-                    if isinstance(first_error, list):
-                        error_message = first_error[0]
-                    else:
-                        error_message = str(first_error)
-                else:
-                    error_message = str(e.detail)
-            
-            return error_response(
-                message=error_message,
-                code=400,
-                data=None
-            )
+
+        # 验证数据，异常由全局异常处理返回
+        serializer.is_valid(raise_exception=True)
+
+        # 创建用户
+        user = serializer.save()
+
+        # 构建返回数据（符合接口文档格式）
+        response_data = {
+            'user_id': user.id,
+            'name': user.name,
+            'phone': user.phone,
+            'role': user.role,
+            'status': user.status,
+        }
+
+        # 使用统一响应格式
+        return success_response(
+            data=response_data,
+            message='注册成功',
+            code=200
+        )
 
 
 class LoginView(APIView):
@@ -146,39 +123,24 @@ class RefreshTokenView(TokenRefreshView):
     permission_classes = [AllowAny]
 
     def post(self, request, *args, **kwargs):
-        try:
-            serializer = self.get_serializer(data=request.data)
-            serializer.is_valid(raise_exception=True)
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
 
-            token_data = serializer.validated_data
-            access_token = token_data.get('access')
-            refresh_token = token_data.get('refresh') or request.data.get('refresh')
+        token_data = serializer.validated_data
+        access_token = token_data.get('access')
+        refresh_token = token_data.get('refresh') or request.data.get('refresh')
 
-            response_data = {
-                'token': access_token,
-                'refresh_token': refresh_token,
-                'expires_in': int(api_settings.ACCESS_TOKEN_LIFETIME.total_seconds()),
-            }
+        response_data = {
+            'token': access_token,
+            'refresh_token': refresh_token,
+            'expires_in': int(api_settings.ACCESS_TOKEN_LIFETIME.total_seconds()),
+        }
 
-            return success_response(
-                data=response_data,
-                message='刷新成功',
-                code=200
-            )
-        except Exception as e:
-            error_message = str(e)
-            if hasattr(e, 'detail'):
-                detail = e.detail
-                if isinstance(detail, dict) and detail:
-                    error_message = next(iter(detail.values()))
-                else:
-                    error_message = str(detail)
-
-            return error_response(
-                message=error_message,
-                code=400,
-                data=None
-            )
+        return success_response(
+            data=response_data,
+            message='刷新成功',
+            code=200
+        )
 
 
 class UpdateRetrieveUser(generics.RetrieveUpdateAPIView):
@@ -211,7 +173,7 @@ class Logout(APIView):
             )
         except Exception as e:
             return error_response(
-                message=f'注销失败: {str(e)}',
+                message=f'退出失败: {str(e)}',
                 code=400,
                 data=None
             )
@@ -315,5 +277,35 @@ class CaptchaView(APIView):
             return error_response(
                 message=f'生成验证码失败: {str(e)}',
                 code=500,
+                data=None
+            )
+
+
+class ChangePasswordView(APIView):
+    """修改当前用户密码"""
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        serializer = ChangePasswordSerializer(data=request.data, context={'request': request})
+        try:
+            serializer.is_valid(raise_exception=True)
+            serializer.save()
+            return success_response(
+                data=None,
+                message='密码修改成功',
+                code=200
+            )
+        except Exception as e:
+            message = str(e)
+            if hasattr(e, 'detail'):
+                detail = e.detail
+                if isinstance(detail, dict) and detail:
+                    message = next(iter(detail.values()))
+                else:
+                    message = str(detail)
+            return error_response(
+                message=message,
+                code=400,
                 data=None
             )

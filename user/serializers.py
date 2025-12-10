@@ -130,3 +130,43 @@ class UserLogOutSerializer(serializers.Serializer):
                 "to the same user as the access token.")
 
         return value
+
+
+class ChangePasswordSerializer(serializers.Serializer):
+    """修改密码序列化器（强制校验手机号 + 验证码）"""
+    old_password = serializers.CharField(required=True, write_only=True, min_length=6)
+    new_password = serializers.CharField(required=True, write_only=True, min_length=6)
+    phone = serializers.CharField(required=True, write_only=True)
+    code = serializers.CharField(required=True, write_only=True)
+
+    def validate_old_password(self, value):
+        user = self.context['request'].user
+        if not user.check_password(value):
+            raise serializers.ValidationError('原密码错误')
+        return value
+
+    def validate(self, attrs):
+        user = self.context['request'].user
+        phone = attrs.get('phone')
+        code = attrs.get('code')
+
+        # 强制校验手机号与验证码
+        if phone != user.phone:
+            raise serializers.ValidationError({'phone': '手机号与当前账号不一致'})
+        from django.core.cache import cache
+        cache_code = cache.get(f'sms_code_{phone}')
+        if not cache_code or str(cache_code) != str(code):
+            raise serializers.ValidationError({'code': '验证码错误或已过期'})
+
+        return attrs
+
+    def validate_new_password(self, value):
+        # 可以在这里扩展密码规则，如复杂度校验
+        return value
+
+    def save(self, **kwargs):
+        user = self.context['request'].user
+        new_password = self.validated_data['new_password']
+        user.set_password(new_password)
+        user.save()
+        return user
