@@ -1,58 +1,113 @@
 """
 医生视图
 """
-from rest_framework import viewsets, status
-from rest_framework.decorators import action
+from rest_framework import generics, status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.views import APIView
 from .models import Doctor
 from .serializers import DoctorSerializer
 from utils.response import success_response, error_response
 from utils.permissions import IsDoctor
-from records.models import Record
-from records.serializers import RecordSerializer
 
 
-class DoctorViewSet(viewsets.ModelViewSet):
-    """医生视图集"""
+class DoctorList(generics.ListAPIView):
+    """医生列表视图"""
     queryset = Doctor.objects.all()
     serializer_class = DoctorSerializer
     permission_classes = [AllowAny]
     
     def list(self, request, *args, **kwargs):
         """获取医生列表"""
-        queryset = self.filter_queryset(self.get_queryset())
-        page = self.paginate_queryset(queryset)
+        queryset = self.get_queryset()
         
-        if page is not None:
-            serializer = self.get_serializer(page, many=True)
-            return self.get_paginated_response(serializer.data)
+        # 支持按医院ID过滤
+        hospital_id = request.query_params.get('hospital_id')
+        if hospital_id:
+            queryset = queryset.filter(hospital_id=hospital_id)
         
-        serializer = self.get_serializer(queryset, many=True)
-        return success_response(serializer.data)
+        # 支持按专科过滤
+        specialty = request.query_params.get('specialty')
+        if specialty:
+            queryset = queryset.filter(specialty=specialty)
+        
+        # 支持视图类型（list 或 rank）
+        view_type = request.query_params.get('view', 'list')
+        if view_type == 'rank':
+            # rank 视图按评分和评价数降序排列
+            queryset = queryset.order_by('-score', '-reviews')
+        
+        # 手动分页
+        page = int(request.query_params.get('page', 1))
+        page_size = int(request.query_params.get('page_size', 10))
+        
+        total_count = queryset.count()
+        start_index = (page - 1) * page_size
+        end_index = start_index + page_size
+        
+        paginated_data = queryset[start_index:end_index]
+        serializer = self.get_serializer(paginated_data, many=True)
+        
+        response_data = {
+            'count': total_count,
+            'page': page,
+            'page_size': page_size,
+            'results': serializer.data
+        }
+        
+        return success_response(response_data)
+
+
+class DoctorDetail(generics.RetrieveAPIView):
+    """医生详情视图"""
+    queryset = Doctor.objects.all()
+    serializer_class = DoctorSerializer
+    permission_classes = [AllowAny]
+    lookup_field = 'pk'
     
     def retrieve(self, request, *args, **kwargs):
         """获取医生详情"""
-        instance = self.get_object()
+        try:
+            instance = self.get_object()
+        except Doctor.DoesNotExist:
+            return error_response('医生不存在', 404)
+        
         serializer = self.get_serializer(instance)
         return success_response(serializer.data)
+
+
+class UpdateDoctorProfile(generics.UpdateAPIView):
+    """医生端更新个人信息"""
+    serializer_class = DoctorSerializer
+    permission_classes = [IsAuthenticated, IsDoctor]
     
-    @action(detail=False, methods=['put'], permission_classes=[IsAuthenticated, IsDoctor])
-    def me(self, request):
-        """医生端更新个人信息"""
+    def get_object(self):
+        """获取当前登录用户的医生信息"""
+        try:
+            return self.request.user.doctor_profile
+        except Doctor.DoesNotExist:
+            raise None
+    
+    def update(self, request, *args, **kwargs):
+        """更新个人信息"""
         try:
             doctor = request.user.doctor_profile
         except Doctor.DoesNotExist:
             return error_response('医生信息不存在', 404)
         
         serializer = self.get_serializer(doctor, data=request.data, partial=True)
-        serializer.is_valid(raise_exception=True)
-        serializer.save()
-        return success_response(serializer.data, '更新成功')
+        if serializer.is_valid():
+            serializer.save()
+            return success_response(serializer.data, '更新成功')
+        return error_response(serializer.errors, 400)
+
+
+class SetDoctorOnlineStatus(APIView):
+    """医生端设置在线状态"""
+    permission_classes = [IsAuthenticated, IsDoctor]
     
-    @action(detail=False, methods=['post'], url_path='me/online-status', permission_classes=[IsAuthenticated, IsDoctor])
-    def online_status(self, request):
-        """医生端设置在线状态"""
+    def post(self, request):
+        """设置在线状态"""
         try:
             doctor = request.user.doctor_profile
         except Doctor.DoesNotExist:
@@ -65,24 +120,4 @@ class DoctorViewSet(viewsets.ModelViewSet):
         doctor.is_online = bool(is_online)
         doctor.save()
         return success_response({'is_online': doctor.is_online}, '状态更新成功')
-    
-    @action(detail=False, methods=['get'], url_path='patients/records', permission_classes=[IsAuthenticated, IsDoctor])
-    def patient_records(self, request):
-        """医生端获取患者病历列表"""
-        from rest_framework.pagination import PageNumberPagination
-        
-        queryset = Record.objects.all()
-        # 具体过滤逻辑待实现
-        
-        # 手动分页
-        paginator = PageNumberPagination()
-        paginator.page_size = request.query_params.get('page_size', 10)
-        page = paginator.paginate_queryset(queryset, request)
-        
-        if page is not None:
-            serializer = RecordSerializer(page, many=True)
-            return paginator.get_paginated_response(serializer.data)
-        
-        serializer = RecordSerializer(queryset, many=True)
-        return success_response(serializer.data)
 
