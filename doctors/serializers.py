@@ -8,10 +8,14 @@ from .models import Doctor
 class DoctorSerializer(serializers.ModelSerializer):
     """医生序列化器"""
     user_id = serializers.IntegerField(source='user.id', read_only=True)
+    name = serializers.CharField(required=False)
     hospital_id = serializers.IntegerField(source='hospital.id', read_only=True)
     
     class Meta:
         model = Doctor
-        fields = '__all__'
-        read_only_fields = ['id', 'user', 'created_at', 'updated_at']
+        fields = ['id', 'user_id', 'name', 'title', 'specialty', 'hospital_id', 'avatar', 
+                  'score', 'reviews', 'introduction', 'education', 'experience', 'is_online', 
+                  'is_admin', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'user_id', 'hospital_id', 'score', 'reviews', 'is_admin', 
+                            'created_at', 'updated_at']
 

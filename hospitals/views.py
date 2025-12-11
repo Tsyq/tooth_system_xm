@@ -92,7 +92,7 @@ class HospitalList(generics.ListAPIView):
         # 非 nearby 的普通分页（在数据库层切片）
         total = queryset.count()
         if page_size is None or page_size <= 0:
-            page_size = total if total > 0 else 0
+            page_size = 9
         if page_num <= 0:
             page_num = 1
         start = (page_num - 1) * page_size
