@@ -1,4 +1,57 @@
-.env
-.venv
+# Virtualenv
+.venv/
+venv/
+ENV/
+env/
+
+# Python cache/compiled
+__pycache__/
 **/__pycache__/
-*.pyc
+*.py[cod]
+*$py.class
+
+# Django
+*.log
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
+media/
+staticfiles/
+
+# Environment files
+.env
+.env.*
+.python-version
+
+# IDE/editor
+.vscode/
+.idea/
+*.code-workspace
+
+# OS junk
+Thumbs.db
+ehthumbs.db
+.DS_Store
+*.swp
+*.swo
+
+# Coverage / reports
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+.pytest_cache/
+
+# Build outputs
+dist/
+build/
+*.egg-info/
+*.egg
+pip-wheel-metadata/
+
+# Node (if any frontend pieces appear)
+node_modules/
+*.tsbuildinfo
+
+# Uploaded files
+uploads/
