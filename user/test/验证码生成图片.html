@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>验证码预览</title>
+    <style>
+        /* 可选：放大图片，看得更清楚 */
+        img {
+            width: 200px;
+            height: auto;
+            border: 1px solid #eee;
+            padding: 10px;
+        }
+    </style>
+</head>
+
+<body>
+    <!-- 直接粘贴你的 captcha_image 完整值到 src 里 -->
+    <img src="data:image/png;base64,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"
+        alt="验证码">
+</body>
+
+</html>
