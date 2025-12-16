@@ -1,4 +1,11 @@
-.env
-.venv
+# 忽略Python虚拟环境
+.venv/
+# 忽略PyCharm IDE配置
+.idea/
+# 其他Python通用忽略项（可选，推荐加）
 **/__pycache__/
 *.pyc
+*.pyo
+*.pyd
+db.sqlite3
+logs/
