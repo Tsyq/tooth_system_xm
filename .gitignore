@@ -59,3 +59,5 @@ uploads/
 # Local tests under user module
 user/test/
 
+# Media uploads (Django MEDIA_ROOT)
+media/
