@@ -48,7 +48,7 @@ class HospitalList(generics.ListAPIView):
                 user_lat = float(request.query_params.get('latitude'))
                 user_lon = float(request.query_params.get('longitude'))
             except (TypeError, ValueError):
-                return error_response('latitude和longitude参数必须为有效的浮点数', status_code=400)
+                return error_response('latitude和longitude参数必须为有效的浮点数', code=400)
 
             hospitals_with_distance = []
             for h in queryset:
