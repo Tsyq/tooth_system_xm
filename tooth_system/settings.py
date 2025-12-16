@@ -1,4 +1,5 @@
 from pathlib import Path
+import os
 from datetime import timedelta
 from decouple import config
 
@@ -146,6 +147,13 @@ MEDIA_ROOT = BASE_DIR / 'media'
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 AUTH_USER_MODEL = 'user.User'
+
+# Ensure log directories exist for file handlers
+for _log_dir in [BASE_DIR / 'user' / 'log', BASE_DIR / 'comment' / 'log']:
+    try:
+        os.makedirs(_log_dir, exist_ok=True)
+    except Exception:
+        pass
 
 REST_FRAMEWORK = {
     # 默认认证类

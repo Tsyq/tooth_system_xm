@@ -200,13 +200,13 @@ class AppointmentViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'], url_path='checkin')
     def checkin(self, request, pk=None):
-        """用户根据定位签到到预约"""
+        """用户根据定位签到到预约（时间窗口 + 距离校验）"""
         appointment = self.get_object()
-        
+
         # 验证预约属于当前用户
         if appointment.user != request.user:
             return error_response('无权操作该预约', 403)
-        
+
         # 验证预约状态
         if appointment.status == 'cancelled':
             return error_response('预约已取消，无法签到', 400)
@@ -214,73 +214,67 @@ class AppointmentViewSet(viewsets.ModelViewSet):
             return error_response('已签到，请勿重复签到', 400)
         if appointment.status == 'completed':
             return error_response('预约已完成，无法签到', 400)
-        
+
         # 反序列化并验证经纬度
         serializer = CheckInSerializer(data=request.data)
         if not serializer.is_valid():
             return error_response(serializer.errors, 400)
-        
+
         user_latitude = serializer.validated_data['latitude']
         user_longitude = serializer.validated_data['longitude']
-        
-        # 先校验时间（预约时间至预约后30分钟内可签到）
+
+        # 校验签到时间窗口（预约时间至预约后30分钟内）
         now = timezone.now()
-        appointment_datetime = timezone.make_aware(
-            timezone.datetime.combine(
+        appt_dt = timezone.make_aware(
+            datetime.combine(
                 appointment.appointment_date,
-                timezone.datetime.strptime(appointment.appointment_time, '%H:%M').time()
+                datetime.strptime(appointment.appointment_time, '%H:%M').time()
             )
         )
-
-        earliest_checkin = appointment_datetime
-        latest_checkin = appointment_datetime + timedelta(minutes=30)
+        earliest_checkin = appt_dt
+        latest_checkin = appt_dt + timedelta(minutes=30)
 
         if now < earliest_checkin:
-            time_remaining = (earliest_checkin - now).total_seconds() / 60
+            minutes_left = (earliest_checkin - now).total_seconds() / 60
             return error_response(
-                f'签到时间未到，请在预约时间开始后再签到（还需等待 {time_remaining:.0f} 分钟）',
+                f'签到时间未到，请在预约开始后再签到（还需等待 {minutes_left:.0f} 分钟）',
                 400
             )
 
         if now > latest_checkin:
-            return error_response(
-                '签到时间已过期，签到失败',
-                400
-            )
+            return error_response('签到时间已过期，签到失败', 400)
 
-        # 再校验医院位置与距离
+        # 校验医院位置与距离
         hospital = appointment.hospital
         if not hospital.latitude or not hospital.longitude:
             return error_response('医院位置信息不完整，无法签到', 500)
 
         distance = haversine_distance(
-            user_latitude,
-            user_longitude,
-            hospital.latitude,
-            hospital.longitude
+            user_latitude, user_longitude,
+            hospital.latitude, hospital.longitude
         )
 
-        CHECKIN_RADIUS = 500  # 签到半径：500m
+        CHECKIN_RADIUS = 500  # 允许签到半径 500m
         if distance > CHECKIN_RADIUS:
             return error_response(
                 f'距离医院过远，当前距离 {distance:.0f}m，需在 {CHECKIN_RADIUS}m 范围内',
                 400
             )
-        
+
         # 签到成功
         appointment.status = 'checked-in'
-        appointment = self.get_object()
-        if appointment.status == 'cancelled':
-            return error_response('已取消预约不可签到', 400)
-        if appointment.status == 'completed':
-            return error_response('已完成预约不可签到', 400)
+        appointment.checkin_time = now
+        appointment.save(update_fields=['status', 'checkin_time'])
 
-        appointment.status = 'checked-in'
-        appointment.checkin_time = timezone.now()
-        appointment.save()
-        return success_response(None, '签到成功')
+        response_data = {
+            'appointment_id': appointment.id,
+            'status': appointment.status,
+            'checkin_time': appointment.checkin_time,
+            'distance': f'{distance:.2f}m'
+        }
+        return success_response(response_data, '签到成功', 200)
 
->>>>>>> origin/main
+
     @action(detail=True, methods=['post'], url_path='complete', permission_classes=[IsAuthenticated, IsDoctor])
     def complete(self, request, pk=None):
         """医生端完成预约：仅该预约对应医生可操作"""
