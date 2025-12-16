@@ -8,9 +8,16 @@ class UserSerializer(serializers.ModelSerializer):
     password = serializers.CharField(
         write_only=True,
         max_length=100,
-        required=True,  # 改为必填
+        required=False,  # 更新资料时不强制要求密码
         min_length=6,   # 添加最小长度验证
         help_text='密码（至少6位）'
+    )
+    # 把 avatar 改为 CharField 以避免 URLField 验证导致的文件对象错误
+    avatar = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        help_text='头像URL'
     )
 
     class Meta:
@@ -32,6 +39,9 @@ class UserSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         password = validated_data.pop('password', None)
+        if not password:
+            # 注册必须提供密码
+            raise serializers.ValidationError({'password': '密码为必填'})
         
         # 设置默认角色为 user（如果未提供）
         role = validated_data.get('role', 'user')

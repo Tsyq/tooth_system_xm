@@ -32,8 +32,8 @@ class HospitalList(generics.ListAPIView):
         if filter_type == 'near':
             qs = qs.filter(latitude__isnull=False, longitude__isnull=False)
         elif filter_type == 'frequent':
-            # 使用 visit_count 排序以代表常用医院
-            qs = qs.order_by('-visit_count', '-review_count', '-rating')
+            # 使用 review_count 排序以代表常用医院
+            qs = qs.order_by('-review_count', '-rating')
         else:
             qs = qs.order_by('-rating', '-review_count')
         return qs
@@ -115,11 +115,6 @@ class HospitalDetail(generics.RetrieveAPIView):
 
     def retrieve(self, request, *args, **kwargs):
         instance = self.get_object()
-        # 增加访问计数
-        try:
-            Hospital.objects.filter(id=instance.id).update(visit_count=F('visit_count') + 1)
-        except Exception:
-            pass
         serializer = self.get_serializer(instance)
         return success_response(serializer.data)
 

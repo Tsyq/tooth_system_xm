@@ -1,4 +1,5 @@
 from pathlib import Path
+import os
 from datetime import timedelta
 from decouple import config
 
@@ -147,15 +148,22 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 AUTH_USER_MODEL = 'user.User'
 
+# Ensure log directories exist for file handlers
+for _log_dir in [BASE_DIR / 'user' / 'log', BASE_DIR / 'comment' / 'log']:
+    try:
+        os.makedirs(_log_dir, exist_ok=True)
+    except Exception:
+        pass
+
 REST_FRAMEWORK = {
     # 默认认证类
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'rest_framework_simplejwt.authentication.JWTAuthentication',
     ),
     
-    # 默认权限类
+    # 默认权限类 - 改为允许所有，各视图自行定义权限
     'DEFAULT_PERMISSION_CLASSES': (
-        'rest_framework.permissions.IsAuthenticated',
+        'rest_framework.permissions.AllowAny',
     ),
     
     # 分页设置
@@ -173,6 +181,9 @@ REST_FRAMEWORK = {
     # API文档生成器
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
 }
+
+# 禁用Django自动添加尾部斜杠
+APPEND_SLASH = False
 
 SIMPLE_JWT = {
     'ACCESS_TOKEN_LIFETIME': timedelta(hours=2),      # Access Token有效期2小时

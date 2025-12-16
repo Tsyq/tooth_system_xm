@@ -13,6 +13,12 @@ from utils.response import success_response, error_response
 from django.core.mail import send_mail
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from rest_framework.parsers import MultiPartParser, FormParser
+from django.utils import timezone
+from django.core.files.storage import default_storage
+from django.core.files.base import ContentFile
+import os
+import uuid
 
 
 class CreateUser(generics.CreateAPIView):
@@ -150,9 +156,77 @@ class UpdateRetrieveUser(generics.RetrieveUpdateAPIView):
     authentication_classes = [JWTAuthentication, ]
     permission_classes = [IsAuthenticated, ]
     serializer_class = UserSerializer
+    parser_classes = (MultiPartParser, FormParser)
 
     def get_object(self):
         return self.request.user
+
+    def _save_avatar_if_present(self, request):
+        avatar_file = request.FILES.get('avatar')
+        if not avatar_file:
+            return None
+
+        allowed_content_types = {'image/jpeg', 'image/png', 'image/gif', 'image/webp'}
+        if avatar_file.content_type not in allowed_content_types:
+            raise ValueError('不支持的图片类型')
+        max_size = 5 * 1024 * 1024
+        if avatar_file.size > max_size:
+            raise ValueError('文件过大，最大5MB')
+
+        today = timezone.now()
+        ext = os.path.splitext(avatar_file.name)[1].lower() or '.jpg'
+        filename = f"{uuid.uuid4().hex}{ext}"
+        relative_dir = os.path.join('uploads', 'avatars', today.strftime('%Y'), today.strftime('%m'))
+        relative_path = os.path.join(relative_dir, filename).replace('\\', '/')
+        saved_path = default_storage.save(relative_path, ContentFile(avatar_file.read()))
+        url = f"{settings.MEDIA_URL}{saved_path}".replace('//', '/').replace(':/', '://')
+        return url
+
+    def put(self, request, *args, **kwargs):
+        user = self.get_object()
+        # 手工提取表单字段，避免 multipart 数据中的文件对象
+        update_data = {}
+        if 'name' in request.data:
+            update_data['name'] = request.data.get('name')
+        if 'email' in request.data:
+            update_data['email'] = request.data.get('email')
+        
+        # 处理头像文件
+        try:
+            avatar_url = self._save_avatar_if_present(request)
+            if avatar_url:
+                update_data['avatar'] = avatar_url
+        except ValueError as e:
+            return error_response(str(e), 400)
+
+        # 只传入提取的字段给序列化器
+        serializer = self.get_serializer(user, data=update_data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        self.perform_update(serializer)
+        return success_response(serializer.data, '更新成功', 200)
+
+    def patch(self, request, *args, **kwargs):
+        user = self.get_object()
+        # 手工提取表单字段，避免 multipart 数据中的文件对象
+        update_data = {}
+        if 'name' in request.data:
+            update_data['name'] = request.data.get('name')
+        if 'email' in request.data:
+            update_data['email'] = request.data.get('email')
+        
+        # 处理头像文件
+        try:
+            avatar_url = self._save_avatar_if_present(request)
+            if avatar_url:
+                update_data['avatar'] = avatar_url
+        except ValueError as e:
+            return error_response(str(e), 400)
+
+        # 只传入提取的字段给序列化器
+        serializer = self.get_serializer(user, data=update_data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        self.perform_update(serializer)
+        return success_response(serializer.data, '更新成功', 200)
 
 
 class Logout(APIView):
