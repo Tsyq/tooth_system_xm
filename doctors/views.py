@@ -121,3 +121,70 @@ class SetDoctorOnlineStatus(APIView):
         doctor.save()
         return success_response({'is_online': doctor.is_online}, '状态更新成功')
 
+
+class DoctorPatientRecordsView(APIView):
+    """医生端获取患者病历列表"""
+    permission_classes = [IsAuthenticated, IsDoctor]
+    
+    def get(self, request):
+        """获取患者病历列表"""
+        from records.models import Record
+        from records.serializers import RecordSerializer
+        
+        try:
+            doctor = request.user.doctor_profile
+        except Doctor.DoesNotExist:
+            return error_response('医生信息不存在', 404)
+        
+        # 获取该医生创建的所有病历
+        queryset = Record.objects.filter(doctor=doctor)
+        
+        # 筛选参数
+        patient_id = request.query_params.get('patient_id')
+        date_from = request.query_params.get('date_from')
+        date_to = request.query_params.get('date_to')
+        patient_name = request.query_params.get('patient_name')
+        doctor_name = request.query_params.get('doctor_name')
+        
+        if patient_id:
+            queryset = queryset.filter(user_id=patient_id)
+        if date_from:
+            queryset = queryset.filter(date__gte=date_from)
+        if date_to:
+            queryset = queryset.filter(date__lte=date_to)
+        if patient_name:
+            queryset = queryset.filter(user__name__icontains=patient_name)
+        if doctor_name:
+            queryset = queryset.filter(doctor__name__icontains=doctor_name)
+        
+        queryset = queryset.select_related('user', 'doctor', 'hospital', 'appointment')
+        
+        # 分页参数
+        page = request.query_params.get('page', 1)
+        page_size = request.query_params.get('page_size', 10)
+        
+        try:
+            page = int(page)
+            page_size = int(page_size)
+        except ValueError:
+            page = 1
+            page_size = 10
+        
+        # 计算分页
+        total_count = queryset.count()
+        start = (page - 1) * page_size
+        end = start + page_size
+        
+        records = queryset[start:end]
+        serializer = RecordSerializer(records, many=True)
+        
+        return success_response(
+            data={
+                'count': total_count,
+                'page': page,
+                'page_size': page_size,
+                'results': serializer.data
+            },
+            message='获取成功'
+        )
+
