@@ -1,4 +1,42 @@
-.env
-.venv
+# 忽略Python虚拟环境（精准匹配根目录）
+.venv/
+venv/
+env/
+
+# 忽略PyCharm IDE配置（全量）
+.idea/
+*.iml
+*.ipr
+*.iws
+.idea_modules/
+
+# Python通用忽略（覆盖所有缓存/编译文件）
 **/__pycache__/
+*.py[cod]
 *.pyc
+*.pyo
+*.pyd
+*.so
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# 项目专属忽略
+db.sqlite3
+db.sqlite3-journal
+logs/
+*.log
