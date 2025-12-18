@@ -186,7 +186,7 @@ REST_FRAMEWORK = {
 APPEND_SLASH = False
 
 SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(hours=2),      # Access Token有效期2小时
+    'ACCESS_TOKEN_LIFETIME': timedelta(hours=24),      # Access Token有效期2小时
     'REFRESH_TOKEN_LIFETIME': timedelta(days=30),     # Refresh Token有效期30天
     'ROTATE_REFRESH_TOKENS': True,                   # 刷新时轮换Refresh Token
     'BLACKLIST_AFTER_ROTATION': True,                # 轮换后加入黑名单
