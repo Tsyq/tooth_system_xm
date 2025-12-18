@@ -2,7 +2,7 @@
 AI问询序列化器
 """
 from rest_framework import serializers
-from .models import Inquiry
+from .models import Inquiry, AIChatMessage
 
 
 class InquirySerializer(serializers.ModelSerializer):
@@ -66,4 +66,13 @@ class AIChatResponseSerializer(serializers.Serializer):
                  ('urgent', '建议尽快就医')],
         required=False
     )
+
+
+class AIChatMessageSerializer(serializers.ModelSerializer):
+    """AI对话消息序列化器（用于历史记录和搜索）"""
+    
+    class Meta:
+        model = AIChatMessage
+        fields = ['id', 'role', 'content', 'created_at']
+        read_only_fields = ['id', 'created_at']
 

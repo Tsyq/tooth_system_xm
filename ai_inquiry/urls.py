@@ -3,7 +3,13 @@ AI问询URL配置
 """
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from .views import InquiryViewSet, AIChatView, AIChatHistoryView
+from .views import (
+    InquiryViewSet, 
+    AIChatView, 
+    AIChatHistoryView, 
+    AIChatSearchView,
+    AIChatMessageLocationView
+)
 
 router = DefaultRouter()
 router.register(r'inquiry', InquiryViewSet, basename='inquiry')
@@ -16,5 +22,7 @@ urlpatterns = [
     # 新的AI对话接口
     path('chat/', AIChatView.as_view(), name='ai-chat'),
     path('history/', AIChatHistoryView.as_view(), name='ai-chat-history'),
+    path('search/', AIChatSearchView.as_view(), name='ai-chat-search'),
+    path('message/<int:message_id>/location/', AIChatMessageLocationView.as_view(), name='ai-chat-message-location'),
 ]
 
