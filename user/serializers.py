@@ -22,8 +22,8 @@ class UserSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = get_user_model()
-        fields = ['id', 'name', 'phone', 'email', 'role', 'avatar', 'status', 'created_at', 'updated_at', 'password']
-        read_only_fields = ['id', 'created_at', 'updated_at', 'status']  # status 由系统根据 role 自动设置
+        fields = ['id', 'name', 'phone', 'email', 'role', 'avatar', 'status', 'no_show_count', 'created_at', 'updated_at', 'password']
+        read_only_fields = ['id', 'created_at', 'updated_at', 'status', 'no_show_count']  # status 由系统根据 role 自动设置
 
     def validate_phone(self, value):
         """验证手机号唯一性和格式"""

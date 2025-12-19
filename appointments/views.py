@@ -152,6 +152,11 @@ class AppointmentViewSet(viewsets.ModelViewSet):
         if serializer.errors:
             return error_response(serializer.errors, 400)
         instance = serializer.save(user=user, doctor=doctor, hospital=hospital)
+        
+        # 更新医院预约次数
+        hospital.appointment_count += 1
+        hospital.save(update_fields=['appointment_count'])
+        
         return success_response(AppointmentSerializer(instance).data, '预约成功')
 
     def update(self, request, *args, **kwargs):
@@ -297,68 +302,6 @@ class AppointmentViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['get', 'post'], url_path='route')
     def route(self, request, pk=None):
-        """获取路线规划所需的位置信息（仅查看路线，不做实时导航）"""
-        appointment = self.get_object()
-
-        # 仅允许本人查询
-        if appointment.user != request.user:
-            return error_response('无权操作该预约', 403)
-
-        # 获取医院位置
-        hospital = appointment.hospital
-        if not hospital.latitude or not hospital.longitude:
-            return error_response('医院位置信息不完整', 500)
-
-        # 可选：获取用户当前位置（用于计算距离）
-        # 支持两种传参方式：
-        # GET: /route/?latitude=..&longitude=..
-        # POST(JSON): { "latitude": .., "longitude": .. }
-        if request.method.upper() == 'POST':
-            raw_lat = request.data.get('latitude')
-            raw_lon = request.data.get('longitude')
-        else:
-            raw_lat = request.query_params.get('latitude')
-            raw_lon = request.query_params.get('longitude')
-        user_location = None
-        distance_m = None
-
-        if raw_lat is not None and raw_lon is not None:
-            # 校验经纬度格式
-            coord_ser = CheckInSerializer(data={'latitude': raw_lat, 'longitude': raw_lon})
-            if not coord_ser.is_valid():
-                return error_response(coord_ser.errors, 400)
-            
-            user_lat = coord_ser.validated_data['latitude']
-            user_lon = coord_ser.validated_data['longitude']
-            user_location = {'latitude': user_lat, 'longitude': user_lon}
-            
-            # 计算距离
-            distance_m = haversine_distance(
-                user_lat, user_lon,
-                hospital.latitude, hospital.longitude
-            )
-
-        # 返回位置信息，供前端调用地图API显示路线
-        data = {
-            'appointment': {
-                'id': appointment.id,
-                'date': appointment.appointment_date.strftime('%Y-%m-%d'),
-                'time': appointment.appointment_time,
-                'status': appointment.status
-            },
-            'hospital': {
-                'name': hospital.name,
-                'address': hospital.address,
-                'latitude': hospital.latitude,
-                'longitude': hospital.longitude
-            },
-            'user_location': user_location,
-            'distance_meters': round(distance_m, 2) if distance_m is not None else None,
-            'guide': {
-                'message': '请在前端调用地图API（如高德JS API）显示从用户位置到医院的路线规划',
-                'example': '使用 AMap.Driving.search(起点坐标, 终点坐标) 进行路线规划'
-            }
-        }
-
-        return success_response(data, '路线信息获取成功', 200)
+        # 已废弃：路线规划改为基于医院ID的接口，请使用 /hospitals/<id>/route/
+        return error_response('路线接口已迁移至医院模块：/hospitals/<id>/route/', 410)
 

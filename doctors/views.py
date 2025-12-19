@@ -8,7 +8,20 @@ from rest_framework.views import APIView
 from .models import Doctor
 from .serializers import DoctorSerializer
 from utils.response import success_response, error_response
-from utils.permissions import IsDoctor
+from utils.permissions import IsDoctor, IsAdminOrAdminDoctor, IsSystemAdmin
+from django.utils import timezone
+from rest_framework.exceptions import NotFound
+
+
+# 审核状态与用户状态映射
+AUDIT_TO_USER_STATUS = {
+    'pending': 'pending',
+    'approved': 'active',
+    'rejected': 'inactive',
+}
+
+DOCTOR_NOT_FOUND = '医生不存在'
+DOCTOR_INFO_NOT_FOUND = '医生信息不存在'
 
 
 class DoctorList(generics.ListAPIView):
@@ -66,14 +79,42 @@ class DoctorDetail(generics.RetrieveAPIView):
     lookup_field = 'pk'
     
     def retrieve(self, request, *args, **kwargs):
-        """获取医生详情"""
+        """获取医生详情（含评价列表）"""
         try:
             instance = self.get_object()
         except Doctor.DoesNotExist:
-            return error_response('医生不存在', 404)
+            return error_response(DOCTOR_NOT_FOUND, 404)
         
         serializer = self.get_serializer(instance)
-        return success_response(serializer.data)
+        data = serializer.data
+        
+        # 获取该医生的评价列表（已评价的病历）
+        from records.models import Record
+        from .review_serializers import DoctorReviewSerializer
+        
+        reviews = Record.objects.filter(
+            doctor=instance,
+            rated=True
+        ).select_related('user').order_by('-created_at')
+        
+        # 分页处理评价
+        page = int(request.query_params.get('review_page', 1))
+        page_size = int(request.query_params.get('review_page_size', 10))
+        total_reviews = reviews.count()
+        start = (page - 1) * page_size
+        end = start + page_size
+        page_reviews = reviews[start:end]
+        
+        review_serializer = DoctorReviewSerializer(page_reviews, many=True)
+        
+        data['reviews_data'] = {
+            'count': total_reviews,
+            'page': page,
+            'page_size': page_size,
+            'results': review_serializer.data
+        }
+        
+        return success_response(data)
 
 
 class UpdateDoctorProfile(generics.UpdateAPIView):
@@ -86,14 +127,14 @@ class UpdateDoctorProfile(generics.UpdateAPIView):
         try:
             return self.request.user.doctor_profile
         except Doctor.DoesNotExist:
-            raise None
+            raise NotFound(DOCTOR_INFO_NOT_FOUND)
     
     def update(self, request, *args, **kwargs):
         """更新个人信息"""
         try:
             doctor = request.user.doctor_profile
         except Doctor.DoesNotExist:
-            return error_response('医生信息不存在', 404)
+            return error_response(DOCTOR_INFO_NOT_FOUND, 404)
         
         serializer = self.get_serializer(doctor, data=request.data, partial=True)
         if serializer.is_valid():
@@ -111,7 +152,7 @@ class SetDoctorOnlineStatus(APIView):
         try:
             doctor = request.user.doctor_profile
         except Doctor.DoesNotExist:
-            return error_response('医生信息不存在', 404)
+            return error_response(DOCTOR_INFO_NOT_FOUND, 404)
         
         is_online = request.data.get('is_online')
         if is_online is None:
@@ -187,4 +228,127 @@ class DoctorPatientRecordsView(APIView):
             },
             message='获取成功'
         )
+
+
+class DoctorAuditList(generics.ListAPIView):
+    """医生审核列表（管理员视角）"""
+    serializer_class = DoctorSerializer
+    permission_classes = [IsAuthenticated, IsSystemAdmin]
+    queryset = Doctor.objects.all()
+
+    def list(self, request, *args, **kwargs):
+        status_q = request.query_params.get('status', 'pending')
+        qs = self.get_queryset()
+        if status_q in ['pending', 'approved', 'rejected']:
+            qs = qs.filter(audit_status=status_q)
+
+        # 支持按专科/医院过滤
+        hospital_id = request.query_params.get('hospital_id')
+        specialty = request.query_params.get('specialty')
+        if hospital_id:
+            qs = qs.filter(hospital_id=hospital_id)
+        if specialty:
+            qs = qs.filter(specialty=specialty)
+
+        page = int(request.query_params.get('page', 1))
+        page_size = int(request.query_params.get('page_size', 10))
+        total_count = qs.count()
+        start = (page - 1) * page_size
+        end = start + page_size
+        serializer = self.get_serializer(qs[start:end], many=True)
+        return success_response({
+            'count': total_count,
+            'page': page,
+            'page_size': page_size,
+            'results': serializer.data
+        })
+
+
+class DoctorAuditApprove(APIView):
+    """审核通过某位医生"""
+    permission_classes = [IsAuthenticated, IsSystemAdmin]
+
+    def post(self, request, pk):
+        try:
+            doctor = Doctor.objects.get(pk=pk)
+        except Doctor.DoesNotExist:
+            return error_response(DOCTOR_NOT_FOUND, 404)
+        if doctor.audit_status == 'approved':
+            return success_response(DoctorSerializer(doctor).data, '已是通过状态')
+        doctor.audit_status = 'approved'
+        doctor.audited_at = timezone.now()
+        doctor.rejected_reason = ''
+        doctor.save()
+        # 同步医生用户状态为激活
+        try:
+            user = doctor.user
+            user.role = 'doctor'
+            user.status = AUDIT_TO_USER_STATUS['approved']
+            user.is_active = True
+            user.save()
+        except Exception:
+            pass
+        return success_response(DoctorSerializer(doctor).data, '审核通过')
+
+
+class DoctorAuditReject(APIView):
+    """审核拒绝某位医生"""
+    permission_classes = [IsAuthenticated, IsSystemAdmin]
+
+    def post(self, request, pk):
+        reason = request.data.get('reason', '')
+        try:
+            doctor = Doctor.objects.get(pk=pk)
+        except Doctor.DoesNotExist:
+            return error_response(DOCTOR_NOT_FOUND, 404)
+        doctor.audit_status = 'rejected'
+        doctor.rejected_reason = reason
+        doctor.audited_at = timezone.now()
+        doctor.save()
+        # 将医生用户标记为禁用
+        try:
+            user = doctor.user
+            user.role = 'doctor'
+            user.status = AUDIT_TO_USER_STATUS['rejected']
+            user.is_active = False
+            user.save()
+        except Exception:
+            pass
+        return success_response(DoctorSerializer(doctor).data, '审核拒绝')
+
+
+class DoctorApply(generics.CreateAPIView):
+    """医生申请入驻（创建医生资料并进入待审核）"""
+    serializer_class = DoctorSerializer
+    permission_classes = [IsAuthenticated]
+
+    def create(self, request, *args, **kwargs):
+        user = request.user
+        if hasattr(user, 'doctor_profile'):
+            return error_response('已存在医生资料', 400)
+        data = request.data.copy()
+        # 必填：姓名/职称/专科；医院由管理员分配
+        required = ['name', 'title', 'specialty']
+        for r in required:
+            if str(r) not in data and f'{r}_id' not in data:
+                return error_response(f'{r}为必填项', 400)
+        try:
+            doctor = Doctor.objects.create(
+                user=user,
+                name=data.get('name'),
+                title=data.get('title'),
+                specialty=data.get('specialty'),
+                hospital_id=data.get('hospital_id') or data.get('hospital') or None,
+                audit_status='pending'
+            )
+        except Exception as e:
+            return error_response(f'创建失败: {e}', 400)
+        # 将用户角色切换为医生，状态待审核
+        try:
+            user.role = 'doctor'
+            user.status = AUDIT_TO_USER_STATUS['pending']
+            user.save()
+        except Exception:
+            pass
+        return success_response(DoctorSerializer(doctor).data, '申请已提交')
 

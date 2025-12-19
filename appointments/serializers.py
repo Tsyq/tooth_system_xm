@@ -14,7 +14,7 @@ class AppointmentSerializer(serializers.ModelSerializer):
     class Meta:
         model = Appointment
         fields = '__all__'
-        read_only_fields = ['id', 'user', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'user', 'doctor','hospital','created_at', 'updated_at']
 
 
 class CheckInSerializer(serializers.Serializer):
