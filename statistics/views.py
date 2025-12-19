@@ -70,9 +70,9 @@ class HomeStatisticsView(APIView):
         )
         revenue_growth = round(revenue_growth, 2)
         
-        # 获取热门医院前5
-        top_hospitals = Hospital.objects.order_by('-review_count')[:5].values(
-            'id', 'name', 'rating', 'review_count', 'image'
+        # 获取热门医院前5（按预约次数）
+        top_hospitals = Hospital.objects.order_by('-appointment_count')[:5].values(
+            'id', 'name', 'rating', 'appointment_count', 'image'
         )
         
         # 获取热门医生前5

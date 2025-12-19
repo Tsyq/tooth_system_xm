@@ -19,6 +19,9 @@ from django.core.files.storage import default_storage
 from django.core.files.base import ContentFile
 import os
 import uuid
+from utils.permissions import IsSystemAdmin
+from appointments.models import Appointment
+from datetime import datetime, timedelta
 
 
 class CreateUser(generics.CreateAPIView):
@@ -206,27 +209,8 @@ class UpdateRetrieveUser(generics.RetrieveUpdateAPIView):
         return success_response(serializer.data, '更新成功', 200)
 
     def patch(self, request, *args, **kwargs):
-        user = self.get_object()
-        # 手工提取表单字段，避免 multipart 数据中的文件对象
-        update_data = {}
-        if 'name' in request.data:
-            update_data['name'] = request.data.get('name')
-        if 'email' in request.data:
-            update_data['email'] = request.data.get('email')
-        
-        # 处理头像文件
-        try:
-            avatar_url = self._save_avatar_if_present(request)
-            if avatar_url:
-                update_data['avatar'] = avatar_url
-        except ValueError as e:
-            return error_response(str(e), 400)
-
-        # 只传入提取的字段给序列化器
-        serializer = self.get_serializer(user, data=update_data, partial=True)
-        serializer.is_valid(raise_exception=True)
-        self.perform_update(serializer)
-        return success_response(serializer.data, '更新成功', 200)
+        # 与 PUT 相同逻辑
+        return self.put(request, *args, **kwargs)
 
 
 class Logout(APIView):
@@ -253,6 +237,91 @@ class Logout(APIView):
                 code=400,
                 data=None
             )
+
+
+# 管理端：用户列表 & 拉黑/解锁
+NO_SHOW_THRESHOLD = 5  # 未按时签到次数阈值
+
+
+def _compute_no_show_count(user):
+    """计算用户未按时签到次数并回写，依据预约超过时间窗口仍为upcoming"""
+    now = timezone.now()
+    appointments = Appointment.objects.filter(user=user, status='upcoming')
+    count = 0
+    for appt in appointments:
+        appt_dt = timezone.make_aware(
+            datetime.combine(
+                appt.appointment_date,
+                datetime.strptime(appt.appointment_time, '%H:%M').time()
+            )
+        )
+        latest_checkin = appt_dt + timedelta(minutes=30)
+        if now > latest_checkin:
+            count += 1
+    if user.no_show_count != count:
+        user.no_show_count = count
+        user.save(update_fields=['no_show_count'])
+    # 自动拉黑逻辑：超过阈值即禁用（使用 status 表示）
+    if count >= NO_SHOW_THRESHOLD:
+        if user.status != 'inactive' or user.is_active:
+            user.status = 'inactive'
+            user.is_active = False
+            user.save(update_fields=['status', 'is_active'])
+    return count
+
+
+class AdminUserList(APIView):
+    """管理员获取用户列表，附带未按时签到次数与拉黑状态"""
+    permission_classes = [IsAuthenticated, IsSystemAdmin]
+
+    def get(self, request):
+        user_model = get_user_model()
+        users = user_model.objects.exclude(role='admin').order_by('-created_at')
+        status_filter = request.query_params.get('status')
+        keyword = request.query_params.get('keyword')
+        if status_filter in ['active', 'pending', 'inactive']:
+            users = users.filter(status=status_filter)
+        if keyword:
+            users = users.filter(name__icontains=keyword)
+
+        results = []
+        for user in users:
+            count = _compute_no_show_count(user)
+            data = UserSerializer(user).data
+            data['no_show_count'] = count
+            results.append(data)
+
+        return success_response({'count': len(results), 'results': results})
+
+
+class AdminUserBlacklist(APIView):
+    """管理员拉黑指定用户"""
+    permission_classes = [IsAuthenticated, IsSystemAdmin]
+
+    def post(self, request, pk):
+        try:
+            user = get_user_model().objects.get(pk=pk)
+        except get_user_model().DoesNotExist:
+            return error_response('用户不存在', 404)
+        user.status = 'inactive'
+        user.is_active = False
+        user.save(update_fields=['status', 'is_active'])
+        return success_response(UserSerializer(user).data, '已拉黑')
+
+
+class AdminUserUnblacklist(APIView):
+    """管理员解除拉黑"""
+    permission_classes = [IsAuthenticated, IsSystemAdmin]
+
+    def post(self, request, pk):
+        try:
+            user = get_user_model().objects.get(pk=pk)
+        except get_user_model().DoesNotExist:
+            return error_response('用户不存在', 404)
+        user.status = 'active'
+        user.is_active = True
+        user.save(update_fields=['status', 'is_active'])
+        return success_response(UserSerializer(user).data, '已解除拉黑')
 
 
 class CaptchaView(APIView):
@@ -302,7 +371,7 @@ class CaptchaView(APIView):
                 elif platform.system() == 'Darwin':  # macOS
                     # macOS 系统字体
                     font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", 24)
-            except:
+            except Exception:
                 pass
             
             if font is None:

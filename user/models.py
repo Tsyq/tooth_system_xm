@@ -1,4 +1,5 @@
 from django.db import models
+from django.db.models import Q
 from django.contrib.auth.models import (
     AbstractBaseUser,
     BaseUserManager,
@@ -45,6 +46,7 @@ class User(AbstractBaseUser, PermissionsMixin):
     role = models.CharField('角色', max_length=10, choices=ROLE_CHOICES, default='user')
     avatar = models.URLField('头像', blank=True, null=True)
     status = models.CharField('状态', max_length=10, choices=STATUS_CHOICES, default='active')
+    no_show_count = models.IntegerField('未按时签到次数', default=0)
     created_at = models.DateTimeField('创建时间', auto_now_add=True)
     updated_at = models.DateTimeField('更新时间', auto_now=True)
     
@@ -60,6 +62,10 @@ class User(AbstractBaseUser, PermissionsMixin):
         db_table = 'user'
         verbose_name = '用户'
         verbose_name_plural = '用户'
+        constraints = [
+            # 保证系统中至多存在一个 role=admin 的用户
+            models.UniqueConstraint(fields=['role'], condition=Q(role='admin'), name='unique_admin_role')
+        ]
     
     def __str__(self):
         return f'{self.name}({self.phone})'

@@ -134,7 +134,7 @@ class Command(BaseCommand):
                 latitude=round(random.uniform(30, 40), 6),
                 longitude=round(random.uniform(110, 120), 6),
                 rating=round(random.uniform(3.5, 5.0), 1),
-                review_count=random.randint(50, 500),
+                appointment_count=random.randint(50, 500),
                 description=f'{hospital_names[i]}是一所集医疗、教学、科研为一体的三级甲等口腔专科医院。',
                 business_hours='08:00-17:30',
                 image=f'https://picsum.photos/400/300?random={i}'
