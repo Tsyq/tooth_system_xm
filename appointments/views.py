@@ -10,7 +10,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from datetime import timedelta
 import math
-from doctors.models import Doctor
+from doctors.models import Doctor, Schedule
 from hospitals.models import Hospital
 from .models import Appointment
 from .serializers import AppointmentSerializer, CheckInSerializer
@@ -124,9 +124,31 @@ class AppointmentViewSet(viewsets.ModelViewSet):
         if doctor.hospital_id != hospital.id:
             return error_response('医生与医院不匹配', 400)
 
-        # 时间冲突校验（同医生、同日同时间不可重复）
-        appt_date = data.get('appointment_date')
+        # 解析日期并校验7天内
+        try:
+            appt_date = datetime.strptime(str(data.get('appointment_date')), '%Y-%m-%d').date()
+        except (TypeError, ValueError):
+            return error_response('预约日期格式错误，应为YYYY-MM-DD', 400)
+
+        today = timezone.localdate()
+        if appt_date < today:
+            return error_response('预约日期不能早于今天', 400)
+        if appt_date > today + timedelta(days=7):
+            return error_response('仅可预约未来7天内的日期', 400)
+
         appt_time = data.get('appointment_time')
+
+        # 校验当日排班存在且有效
+        has_schedule = Schedule.objects.filter(
+            doctor=doctor,
+            hospital=hospital,
+            date=appt_date,
+            status='active'
+        ).exists()
+        if not has_schedule:
+            return error_response('该医生当日未排班，无法预约', 400)
+
+        # 时间冲突校验（同医生、同日同时间不可重复）
         conflict = Appointment.objects.filter(
             doctor=doctor,
             appointment_date=appt_date,
@@ -166,8 +188,30 @@ class AppointmentViewSet(viewsets.ModelViewSet):
         if appointment.status in ['cancelled', 'completed']:
             return error_response('当前状态不允许改期', 400)
 
-        new_date = request.data.get('appointment_date', appointment.appointment_date)
+        # 解析日期
+        raw_new_date = request.data.get('appointment_date', appointment.appointment_date)
+        try:
+            new_date = datetime.strptime(str(raw_new_date), '%Y-%m-%d').date()
+        except (TypeError, ValueError):
+            return error_response('预约日期格式错误，应为YYYY-MM-DD', 400)
+
         new_time = request.data.get('appointment_time', appointment.appointment_time)
+
+        today = timezone.localdate()
+        if new_date < today:
+            return error_response('预约日期不能早于今天', 400)
+        if new_date > today + timedelta(days=7):
+            return error_response('仅可预约未来7天内的日期', 400)
+
+        # 校验当日排班存在且有效
+        has_schedule = Schedule.objects.filter(
+            doctor=appointment.doctor,
+            hospital=appointment.hospital,
+            date=new_date,
+            status='active'
+        ).exists()
+        if not has_schedule:
+            return error_response('该医生当日未排班，无法改期到该日期', 400)
 
         # 如果无任何变化，直接返回
         if str(new_date) == str(appointment.appointment_date) and str(new_time) == str(appointment.appointment_time):

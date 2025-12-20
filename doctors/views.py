@@ -1,16 +1,18 @@
 """
 医生视图
 """
+from datetime import datetime
 from rest_framework import generics, status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from .models import Doctor
-from .serializers import DoctorSerializer
+from .models import Doctor, Schedule
+from .serializers import DoctorSerializer, ScheduleSerializer
 from utils.response import success_response, error_response
 from utils.permissions import IsDoctor, IsAdminOrAdminDoctor, IsSystemAdmin
 from django.utils import timezone
 from rest_framework.exceptions import NotFound
+from hospitals.models import Hospital
 
 
 # 审核状态与用户状态映射
@@ -228,6 +230,109 @@ class DoctorPatientRecordsView(APIView):
             },
             message='获取成功'
         )
+
+
+class ScheduleView(APIView):
+    """排班管理：管理员批量上传，其他用户/前端可查询"""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        qs = Schedule.objects.select_related('doctor', 'hospital').all()
+        hospital_id = request.query_params.get('hospital_id')
+        doctor_id = request.query_params.get('doctor_id')
+        start = request.query_params.get('start')
+        end = request.query_params.get('end')
+        status_param = request.query_params.get('status', 'active')
+
+        if hospital_id:
+            qs = qs.filter(hospital_id=hospital_id)
+        if doctor_id:
+            qs = qs.filter(doctor_id=doctor_id)
+        if status_param:
+            qs = qs.filter(status=status_param)
+        if start:
+            qs = qs.filter(date__gte=start)
+        if end:
+            qs = qs.filter(date__lte=end)
+
+        qs = qs.order_by('date', 'doctor_id')
+        serializer = ScheduleSerializer(qs, many=True)
+        return success_response(serializer.data)
+
+    def post(self, request):
+        # 仅平台管理员可上传排班
+        if not IsSystemAdmin().has_permission(request, self):
+            return error_response('仅平台管理员可上传排班', 403)
+
+        data = request.data
+        hospital_id = data.get('hospital_id')
+        doctor_ids = data.get('doctor_ids') or []
+        status_value = data.get('status', 'active')
+        overwrite = bool(data.get('overwrite', False))
+        single_date = data.get('date')
+        dates_payload = data.get('dates')
+
+        if not hospital_id:
+            return error_response('hospital_id为必填项', 400)
+        if not doctor_ids:
+            return error_response('doctor_ids为必填项', 400)
+        if not single_date and not dates_payload:
+            return error_response('date或dates为必填项', 400)
+
+        # 解析日期列表
+        parsed_dates = []
+        raw_dates = dates_payload if dates_payload else [single_date]
+        try:
+            for d in raw_dates:
+                parsed_dates.append(datetime.strptime(str(d), '%Y-%m-%d').date())
+        except (TypeError, ValueError):
+            return error_response('日期格式错误，需为YYYY-MM-DD', 400)
+
+        # 校验医院存在
+        try:
+            hospital = Hospital.objects.get(id=hospital_id)
+        except Hospital.DoesNotExist:
+            return error_response('医院不存在', 404)
+
+        # 校验医生并限定同院
+        doctors = []
+        for doc_id in doctor_ids:
+            try:
+                doctor = Doctor.objects.get(id=doc_id)
+            except Doctor.DoesNotExist:
+                return error_response(f'医生{doc_id}不存在', 404)
+            if doctor.hospital_id != hospital.id:
+                return error_response(f'医生{doctor.id}不属于该医院', 400)
+            doctors.append(doctor)
+
+        created, skipped, overwritten_records = [], [], []
+        for d in parsed_dates:
+            for doctor in doctors:
+                obj, was_created = Schedule.objects.get_or_create(
+                    hospital=hospital,
+                    doctor=doctor,
+                    date=d,
+                    defaults={'status': status_value, 'created_by': request.user}
+                )
+                if was_created:
+                    created.append(obj.id)
+                    continue
+                if overwrite:
+                    obj.status = status_value
+                    obj.created_by = request.user
+                    obj.save(update_fields=['status', 'created_by', 'updated_at'])
+                    overwritten_records.append(obj.id)
+                else:
+                    skipped.append(obj.id)
+
+        return success_response({
+            'created_count': len(created),
+            'overwritten_count': len(overwritten_records),
+            'skipped_count': len(skipped),
+            'created_ids': created,
+            'overwritten_ids': overwritten_records,
+            'skipped_ids': skipped,
+        }, '排班上传完成')
 
 
 class DoctorAuditList(generics.ListAPIView):
