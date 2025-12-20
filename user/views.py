@@ -97,6 +97,14 @@ class LoginView(APIView):
                 'user': user_data,
                 'expires_in': expires_in
             }
+
+            # 若有登录提示（医生待审核/被拒绝），追加到响应
+            login_notice = serializer.validated_data.get('login_notice')
+            rejected_reason = serializer.validated_data.get('rejected_reason')
+            if login_notice:
+                response_data['login_notice'] = login_notice
+            if rejected_reason:
+                response_data['rejected_reason'] = rejected_reason
             
             return success_response(
                 data=response_data,
@@ -243,6 +251,26 @@ class Logout(APIView):
 NO_SHOW_THRESHOLD = 5  # 未按时签到次数阈值
 
 
+def _calculate_no_show_count(user):
+    """只读计算未按时签到次数，不写回数据库、不触发自动拉黑。
+    用于管理员列表 GET 时展示最新的统计，但不改变状态。
+    """
+    now = timezone.now()
+    appointments = Appointment.objects.filter(user=user, status='upcoming')
+    count = 0
+    for appt in appointments:
+        appt_dt = timezone.make_aware(
+            datetime.combine(
+                appt.appointment_date,
+                datetime.strptime(appt.appointment_time, '%H:%M').time()
+            )
+        )
+        latest_checkin = appt_dt + timedelta(minutes=30)
+        if now > latest_checkin:
+            count += 1
+    return count
+
+
 def _compute_no_show_count(user):
     """计算用户未按时签到次数并回写，依据预约超过时间窗口仍为upcoming"""
     now = timezone.now()
@@ -279,14 +307,17 @@ class AdminUserList(APIView):
         users = user_model.objects.exclude(role='admin').order_by('-created_at')
         status_filter = request.query_params.get('status')
         keyword = request.query_params.get('keyword')
+        recompute_param = request.query_params.get('recompute')
+        # 仅当显式传入 ?recompute=true/1 时，才执行写回计算与自动拉黑
+        recompute = str(recompute_param).lower() in {'true', '1'}
         if status_filter in ['active', 'pending', 'inactive']:
             users = users.filter(status=status_filter)
         if keyword:
             users = users.filter(name__icontains=keyword)
 
         results = []
-        for user in users:
-            count = _compute_no_show_count(user)
+        for user in users.filter(role='user'):
+            count = _compute_no_show_count(user) if recompute else _calculate_no_show_count(user)
             data = UserSerializer(user).data
             data['no_show_count'] = count
             results.append(data)
