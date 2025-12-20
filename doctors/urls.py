@@ -11,7 +11,8 @@ from .views import (
     DoctorAuditList,
     DoctorAuditApprove,
     DoctorAuditReject,
-    DoctorApply
+    DoctorApply,
+    ScheduleView,
 )
 
 urlpatterns = [
@@ -20,6 +21,7 @@ urlpatterns = [
     path('me/', UpdateDoctorProfile.as_view(), name='update-doctor-profile'),  # 医生更新个人信息 PUT /doctors/me/
     path('me/online-status/', SetDoctorOnlineStatus.as_view(), name='set-online-status'),  # 医生设置在线状态 POST /doctors/me/online-status/
     path('patients/records/', DoctorPatientRecordsView.as_view(), name='doctor-patient-records'),  # 医生端获取患者病历列表 GET /doctors/patients/records/
+    path('schedules/', ScheduleView.as_view(), name='doctor-schedules'),  # 排班管理与查询
     # 审核相关
     path('audits/', DoctorAuditList.as_view(), name='doctor-audit-list'),  # 管理端获取审核列表 GET /doctors/audits/?status=pending|approved|rejected
     path('audits/<int:pk>/approve/', DoctorAuditApprove.as_view(), name='doctor-audit-approve'),  # 管理端审核通过 POST /doctors/audits/<id>/approve/

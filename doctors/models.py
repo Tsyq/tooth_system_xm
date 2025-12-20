@@ -43,3 +43,31 @@ class Doctor(models.Model):
     def __str__(self):
         return f'{self.name} - {self.hospital.name}'
 
+
+class Schedule(models.Model):
+    """医生排班（按日）"""
+    STATUS_CHOICES = [
+        ('active', '有效'),
+        ('cancelled', '已取消'),
+    ]
+
+    hospital = models.ForeignKey(Hospital, on_delete=models.CASCADE, related_name='schedules')
+    doctor = models.ForeignKey(Doctor, on_delete=models.CASCADE, related_name='schedules')
+    date = models.DateField('排班日期')
+    status = models.CharField('状态', max_length=10, choices=STATUS_CHOICES, default='active')
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='created_schedules')
+    created_at = models.DateTimeField('创建时间', auto_now_add=True)
+    updated_at = models.DateTimeField('更新时间', auto_now=True)
+
+    class Meta:
+        db_table = 'doctor_schedule'
+        verbose_name = '排班'
+        verbose_name_plural = '排班'
+        constraints = [
+            models.UniqueConstraint(fields=['doctor', 'date'], name='unique_doctor_schedule_per_day'),
+        ]
+        ordering = ['-date', '-created_at']
+
+    def __str__(self):
+        return f'{self.date} {self.doctor.name} ({self.hospital.name}) {self.status}'
+
