@@ -285,7 +285,7 @@ class DoctorAuditApprove(APIView):
             user.role = 'doctor'
             user.status = AUDIT_TO_USER_STATUS['approved']
             user.is_active = True
-            user.save()
+            user.save(update_fields=['role', 'status', 'is_active', 'updated_at'])
         except Exception:
             pass
         return success_response(DoctorSerializer(doctor).data, '审核通过')
@@ -311,44 +311,80 @@ class DoctorAuditReject(APIView):
             user.role = 'doctor'
             user.status = AUDIT_TO_USER_STATUS['rejected']
             user.is_active = False
-            user.save()
+            user.save(update_fields=['role', 'status', 'is_active', 'updated_at'])
         except Exception:
             pass
         return success_response(DoctorSerializer(doctor).data, '审核拒绝')
 
 
 class DoctorApply(generics.CreateAPIView):
-    """医生申请入驻（创建医生资料并进入待审核）"""
+    """医生申请入驻（提交/更新申请资料并进入待审核）。无需登录，通过手机号定位账号。"""
     serializer_class = DoctorSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [AllowAny]
 
     def create(self, request, *args, **kwargs):
-        user = request.user
-        if hasattr(user, 'doctor_profile'):
-            return error_response('已存在医生资料', 400)
+        from django.contrib.auth import get_user_model
         data = request.data.copy()
-        # 必填：姓名/职称/专科；医院由管理员分配
-        required = ['name', 'title', 'specialty']
-        for r in required:
-            if str(r) not in data and f'{r}_id' not in data:
-                return error_response(f'{r}为必填项', 400)
+
+        # 需要手机号以定位用户
+        phone = data.get('phone')
+        if not phone:
+            return error_response('phone为必填项', 400)
+
+        # 必填：姓名/职称/专科；医院由管理员分配（可选）
+        for field in ['name', 'title', 'specialty']:
+            if not data.get(field):
+                return error_response(f'{field}为必填项', 400)
+
+        user = get_user_model().objects.filter(phone=phone).first()
+        if not user:
+            return error_response('用户不存在', 404)
+
+        # 若为普通用户，切换为医生角色；若已是医生，继续更新资料
+        doctor = getattr(user, 'doctor_profile', None)
         try:
-            doctor = Doctor.objects.create(
-                user=user,
-                name=data.get('name'),
-                title=data.get('title'),
-                specialty=data.get('specialty'),
-                hospital_id=data.get('hospital_id') or data.get('hospital') or None,
-                audit_status='pending'
-            )
+            if doctor is None:
+                doctor = Doctor.objects.create(
+                    user=user,
+                    name=data.get('name'),
+                    title=data.get('title'),
+                    specialty=data.get('specialty'),
+                    avatar=data.get('avatar') or None,
+                    introduction=data.get('introduction') or '',
+                    education=data.get('education') or '',
+                    experience=data.get('experience') or '',
+                    hospital_id=data.get('hospital_id') or data.get('hospital') or None,
+                    audit_status='pending'
+                )
+            else:
+                doctor.name = data.get('name') or doctor.name
+                doctor.title = data.get('title') or doctor.title
+                doctor.specialty = data.get('specialty') or doctor.specialty
+                if 'avatar' in data:
+                    doctor.avatar = data.get('avatar') or None
+                if 'introduction' in data:
+                    doctor.introduction = data.get('introduction') or ''
+                if 'education' in data:
+                    doctor.education = data.get('education') or ''
+                if 'experience' in data:
+                    doctor.experience = data.get('experience') or ''
+                if data.get('hospital_id') or data.get('hospital'):
+                    doctor.hospital_id = data.get('hospital_id') or data.get('hospital')
+                doctor.audit_status = 'pending'
+                doctor.rejected_reason = ''
+                doctor.audited_at = None
+                doctor.save()
         except Exception as e:
-            return error_response(f'创建失败: {e}', 400)
-        # 将用户角色切换为医生，状态待审核
+            return error_response(f'提交失败: {e}', 400)
+
+        # 同步用户角色/状态为待审核并禁用登录
         try:
             user.role = 'doctor'
             user.status = AUDIT_TO_USER_STATUS['pending']
-            user.save()
+            user.is_active = False
+            user.save(update_fields=['role', 'status', 'is_active', 'updated_at'])
         except Exception:
             pass
+
         return success_response(DoctorSerializer(doctor).data, '申请已提交')
 

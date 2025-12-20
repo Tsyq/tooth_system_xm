@@ -425,7 +425,7 @@ def retrieve_doctors_by_intent(
                 "is_online": d.is_online,  # 是否在线，用于紧急时间推荐
                 "score": d.score,  # 评分
                 "reviews": d.reviews,  # 评价数
-                "next_available_time": None,  # 当前系统无排班表，这里先返回 None
+                "next_available_time": "暂无排班信息",  # 当前系统无排班表，返回提示文案
                 "is_exact_match": has_exact_match,  # 是否为精确匹配
             }
         )
