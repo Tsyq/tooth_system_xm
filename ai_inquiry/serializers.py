@@ -48,9 +48,8 @@ class RecommendedDoctorSerializer(serializers.Serializer):
     title = serializers.CharField()
     good_at = serializers.CharField()
     next_available_time = serializers.CharField(
-        allow_blank=True,
-        default="暂无排班信息",
-        help_text='下次可预约时间，如无排班返回提示文案'
+        allow_null=True,
+        required=False
     )
 
 
