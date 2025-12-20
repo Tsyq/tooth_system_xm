@@ -46,7 +46,6 @@ INSTALLED_APPS = [
     'ai_inquiry',
     'uploads',
     'statistics',
-    'comment',
 ]
 
 MIDDLEWARE = [
@@ -149,7 +148,7 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 AUTH_USER_MODEL = 'user.User'
 
 # Ensure log directories exist for file handlers
-for _log_dir in [BASE_DIR / 'user' / 'log', BASE_DIR / 'comment' / 'log']:
+for _log_dir in [BASE_DIR / 'user' / 'log']:
     try:
         os.makedirs(_log_dir, exist_ok=True)
     except Exception:
@@ -224,21 +223,10 @@ LOGGING = {
             'filename': 'user/log/user_creation.log',
             'formatter': 'detailed',
         },
-        'comment_update_file': {
-            'level': 'INFO',
-            'class': 'logging.FileHandler',
-            'filename': 'comment/log/comment_updates.log',
-            'formatter': 'detailed',
-        },
     },
     'loggers': {
         'user_creation_logger': {
             'handlers': ['user_creation_file'],
-            'level': 'INFO',
-            'propagate': False,
-        },
-        'comment_update_logger': {
-            'handlers': ['comment_update_file'],
             'level': 'INFO',
             'propagate': False,
         },
