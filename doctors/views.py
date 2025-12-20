@@ -28,7 +28,7 @@ DOCTOR_INFO_NOT_FOUND = '医生信息不存在'
 
 class DoctorList(generics.ListAPIView):
     """医生列表视图"""
-    queryset = Doctor.objects.all()
+    queryset = Doctor.objects.filter(audit_status='approved')
     serializer_class = DoctorSerializer
     permission_classes = [AllowAny]
     
@@ -233,11 +233,31 @@ class DoctorPatientRecordsView(APIView):
 
 
 class ScheduleView(APIView):
-    """排班管理：管理员批量上传，其他用户/前端可查询"""
-    permission_classes = [IsAuthenticated]
+    """排班管理：管理员医生批量上传，医生可查询"""
+    permission_classes = [IsAuthenticated, IsDoctor]
 
     def get(self, request):
+        """查询排班：管理员医生看本院所有，普通医生仅看自己"""
+        user = request.user
+        try:
+            doctor = user.doctor_profile
+        except Doctor.DoesNotExist:
+            return error_response('医生信息不存在', 404)
+
         qs = Schedule.objects.select_related('doctor', 'hospital').all()
+
+        # 权限过滤
+        if doctor.is_admin:
+            # 管理员医生：可查看本院所有排班
+            if doctor.hospital:
+                qs = qs.filter(hospital=doctor.hospital)
+            else:
+                qs = qs.none()
+        else:
+            # 普通医生：仅看自己的排班
+            qs = qs.filter(doctor=doctor)
+
+        # 查询参数过滤
         hospital_id = request.query_params.get('hospital_id')
         doctor_id = request.query_params.get('doctor_id')
         start = request.query_params.get('start')
@@ -260,9 +280,18 @@ class ScheduleView(APIView):
         return success_response(serializer.data)
 
     def post(self, request):
-        # 仅平台管理员可上传排班
-        if not IsSystemAdmin().has_permission(request, self):
-            return error_response('仅平台管理员可上传排班', 403)
+        """新建/修改排班：仅管理员医生可操作本院排班"""
+        user = request.user
+        try:
+            doctor = user.doctor_profile
+        except Doctor.DoesNotExist:
+            return error_response('医生信息不存在', 404)
+
+        if not doctor.is_admin:
+            return error_response('仅管理员医生可上传排班', 403)
+
+        if not doctor.hospital:
+            return error_response('医生未绑定医院', 400)
 
         data = request.data
         hospital_id = data.get('hospital_id')
@@ -272,8 +301,11 @@ class ScheduleView(APIView):
         single_date = data.get('date')
         dates_payload = data.get('dates')
 
-        if not hospital_id:
-            return error_response('hospital_id为必填项', 400)
+        # 限制只能管理本院
+        if hospital_id and int(hospital_id) != doctor.hospital.id:
+            return error_response('只能管理本院排班', 403)
+        hospital_id = doctor.hospital.id
+
         if not doctor_ids:
             return error_response('doctor_ids为必填项', 400)
         if not single_date and not dates_payload:
@@ -288,29 +320,25 @@ class ScheduleView(APIView):
         except (TypeError, ValueError):
             return error_response('日期格式错误，需为YYYY-MM-DD', 400)
 
-        # 校验医院存在
-        try:
-            hospital = Hospital.objects.get(id=hospital_id)
-        except Hospital.DoesNotExist:
-            return error_response('医院不存在', 404)
+        hospital = doctor.hospital
 
         # 校验医生并限定同院
         doctors = []
         for doc_id in doctor_ids:
             try:
-                doctor = Doctor.objects.get(id=doc_id)
+                doc = Doctor.objects.get(id=doc_id)
             except Doctor.DoesNotExist:
                 return error_response(f'医生{doc_id}不存在', 404)
-            if doctor.hospital_id != hospital.id:
-                return error_response(f'医生{doctor.id}不属于该医院', 400)
-            doctors.append(doctor)
+            if doc.hospital_id != hospital.id:
+                return error_response(f'医生{doc.id}不属于本院', 400)
+            doctors.append(doc)
 
         created, skipped, overwritten_records = [], [], []
         for d in parsed_dates:
-            for doctor in doctors:
+            for doc in doctors:
                 obj, was_created = Schedule.objects.get_or_create(
                     hospital=hospital,
-                    doctor=doctor,
+                    doctor=doc,
                     date=d,
                     defaults={'status': status_value, 'created_by': request.user}
                 )
