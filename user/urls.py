@@ -8,6 +8,9 @@ from .views import (
     RefreshTokenView,
     ChangePasswordView,
     SendEmailCodeView,
+    AdminUserList,
+    AdminUserBlacklist,
+    AdminUserUnblacklist,
 )
 
 urlpatterns = [
@@ -20,4 +23,8 @@ urlpatterns = [
     path('captcha/', CaptchaView.as_view(), name='captcha'),          # 获取图形验证码
     path('change-password/', ChangePasswordView.as_view(), name='change_password'), # 修改密码
     path('send-email-code/', SendEmailCodeView.as_view(), name='send_email_code'), # 发送邮箱验证码
+    # 管理端用户列表与拉黑
+    path('admin/users/', AdminUserList.as_view(), name='admin_user_list'),
+    path('admin/users/<int:pk>/blacklist/', AdminUserBlacklist.as_view(), name='admin_user_blacklist'),
+    path('admin/users/<int:pk>/unblacklist/', AdminUserUnblacklist.as_view(), name='admin_user_unblacklist'),
 ]

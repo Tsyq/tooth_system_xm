@@ -32,6 +32,27 @@ class IsAdminDoctor(permissions.BasePermission):
             return False
         try:
             return request.user.doctor_profile.is_admin
-        except:
+        except Exception:
             return False
+
+
+class IsAdminOrAdminDoctor(permissions.BasePermission):
+    """管理员(系统)或管理员医生权限"""
+    def has_permission(self, request, view):
+        user = request.user
+        if not (user and user.is_authenticated):
+            return False
+        if getattr(user, 'role', None) == 'admin':
+            return True
+        try:
+            return user.role == 'doctor' and user.doctor_profile.is_admin
+        except Exception:
+            return False
+
+
+class IsSystemAdmin(permissions.BasePermission):
+    """仅允许系统唯一管理员访问"""
+    def has_permission(self, request, view):
+        user = request.user
+        return bool(user and user.is_authenticated and getattr(user, 'role', None) == 'admin')
 

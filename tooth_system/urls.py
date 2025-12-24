@@ -25,9 +25,6 @@ urlpatterns = [
     path('api/ai/', include('ai_inquiry.urls')),      # AI问询模块
     path('api/upload/', include('uploads.urls')),      # 文件上传模块
     path('api/statistics/', include('statistics.urls')), # 统计数据模块
-    
-    # 其他路由
-    path('comment/', include('comment.urls')),
 ]
 
 # 开发环境：提供媒体文件访问

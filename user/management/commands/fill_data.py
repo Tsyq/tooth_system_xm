@@ -15,7 +15,6 @@ from appointments.models import Appointment
 from records.models import Record
 from consultations.models import Consultation, Message
 from ai_inquiry.models import Inquiry
-from comment.models import Comment
 
 
 class Command(BaseCommand):
@@ -31,7 +30,6 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         if options['clear']:
             self.stdout.write(self.style.WARNING('正在清空现有数据...'))
-            Comment.objects.all().delete()
             Inquiry.objects.all().delete()
             Message.objects.all().delete()
             Consultation.objects.all().delete()
@@ -75,10 +73,6 @@ class Command(BaseCommand):
         # 8. 创建AI问询
         inquiries = self.create_inquiries(users)
         self.stdout.write(self.style.SUCCESS(f'✓ 创建了 {len(inquiries)} 个AI问询'))
-
-        # 9. 创建评论
-        comments = self.create_comments(users)
-        self.stdout.write(self.style.SUCCESS(f'✓ 创建了 {len(comments)} 条评论'))
 
         self.stdout.write(self.style.SUCCESS('\n✅ 所有模拟数据填充完成！'))
 
@@ -134,7 +128,7 @@ class Command(BaseCommand):
                 latitude=round(random.uniform(30, 40), 6),
                 longitude=round(random.uniform(110, 120), 6),
                 rating=round(random.uniform(3.5, 5.0), 1),
-                review_count=random.randint(50, 500),
+                appointment_count=random.randint(50, 500),
                 description=f'{hospital_names[i]}是一所集医疗、教学、科研为一体的三级甲等口腔专科医院。',
                 business_hours='08:00-17:30',
                 image=f'https://picsum.photos/400/300?random={i}'
@@ -402,33 +396,5 @@ class Command(BaseCommand):
         
         return inquiries
 
-    def create_comments(self, users, count=20):
-        """创建评论"""
-        comments = []
-        regular_users = [u for u in users if u.role == 'user']
-        
-        comment_texts = [
-            '服务很好，医生很专业',
-            '治疗效果不错，很满意',
-            '医院环境很好，设备先进',
-            '医生很耐心，解释很详细',
-            '预约很方便，就诊流程顺畅',
-            '价格合理，服务周到',
-            '医生技术很好，推荐',
-            '整体体验不错，会推荐给朋友',
-            '医院位置方便，停车方便',
-            '医护人员态度很好'
-        ]
-        
-        for i in range(count):
-            user = random.choice(regular_users)
-            text = random.choice(comment_texts)
-            
-            comment = Comment.objects.create(
-                user=user,
-                text=text
-            )
-            comments.append(comment)
-        
-        return comments
+
 

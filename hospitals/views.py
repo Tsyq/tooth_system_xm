@@ -3,11 +3,16 @@
 """
 from math import radians, sin, asin, sqrt
 from rest_framework import generics
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.views import APIView
 from django.db.models import F
 from .models import Hospital
 from .serializers import HospitalSerializer
 from utils.response import success_response, error_response
+from utils.permissions import IsSystemAdmin
+from doctors.models import Doctor
+from appointments.serializers import CheckInSerializer
+import math
 
 
 class HospitalList(generics.ListAPIView):
@@ -32,10 +37,10 @@ class HospitalList(generics.ListAPIView):
         if filter_type == 'near':
             qs = qs.filter(latitude__isnull=False, longitude__isnull=False)
         elif filter_type == 'frequent':
-            # 使用 visit_count 排序以代表常用医院
-            qs = qs.order_by('-visit_count', '-review_count', '-rating')
+            # 使用预约次数排序代表常用医院
+            qs = qs.order_by('-appointment_count')
         else:
-            qs = qs.order_by('-rating', '-review_count')
+            qs = qs.order_by('-appointment_count')
         return qs
 
     def list(self, request, *args, **kwargs):
@@ -115,11 +120,116 @@ class HospitalDetail(generics.RetrieveAPIView):
 
     def retrieve(self, request, *args, **kwargs):
         instance = self.get_object()
-        # 增加访问计数
-        try:
-            Hospital.objects.filter(id=instance.id).update(visit_count=F('visit_count') + 1)
-        except Exception:
-            pass
         serializer = self.get_serializer(instance)
         return success_response(serializer.data)
+
+
+class HospitalRoute(APIView):
+    """基于医院ID的路线信息接口：返回医院位置、用户位置、两者距离（米）"""
+    permission_classes = [AllowAny]
+
+    def _haversine_distance(self, lat1, lon1, lat2, lon2):
+        R = 6371000
+        lat1_rad = math.radians(lat1)
+        lat2_rad = math.radians(lat2)
+        dlat = math.radians(lat2 - lat1)
+        dlon = math.radians(lon2 - lon1)
+        a = math.sin(dlat / 2) ** 2 + math.cos(lat1_rad) * math.cos(lat2_rad) * math.sin(dlon / 2) ** 2
+        c = 2 * math.asin(math.sqrt(a))
+        return R * c
+
+    def get(self, request, pk: int):
+        return self._handle(request, pk)
+
+    def post(self, request, pk: int):
+        return self._handle(request, pk)
+
+    def _handle(self, request, pk: int):
+        try:
+            hospital = Hospital.objects.get(pk=pk)
+        except Hospital.DoesNotExist:
+            return error_response('医院不存在', 404)
+
+        if hospital.latitude is None or hospital.longitude is None:
+            return error_response('医院位置信息不完整', 500)
+
+        if request.method.upper() == 'POST':
+            raw_lat = request.data.get('latitude')
+            raw_lon = request.data.get('longitude')
+        else:
+            raw_lat = request.query_params.get('latitude')
+            raw_lon = request.query_params.get('longitude')
+
+        user_location = None
+        distance_m = None
+
+        if raw_lat is not None and raw_lon is not None:
+            coord_ser = CheckInSerializer(data={'latitude': raw_lat, 'longitude': raw_lon})
+            if not coord_ser.is_valid():
+                return error_response(coord_ser.errors, 400)
+
+            user_lat = coord_ser.validated_data['latitude']
+            user_lon = coord_ser.validated_data['longitude']
+            user_location = {'latitude': user_lat, 'longitude': user_lon}
+
+            distance_m = self._haversine_distance(
+                user_lat, user_lon, hospital.latitude, hospital.longitude
+            )
+
+        data = {
+            'hospital': {
+                'id': hospital.id,
+                'name': hospital.name,
+                'address': hospital.address,
+                'latitude': hospital.latitude,
+                'longitude': hospital.longitude,
+            },
+            'user_location': user_location,
+            'distance_meters': round(distance_m, 2) if distance_m is not None else None,
+            'guide': {
+                'message': '请在前端调用地图API（如高德JS API）显示路线',
+                'example': 'AMap.Driving.search([userLon,userLat],[hosLon,hosLat])'
+            }
+        }
+
+        return success_response(data, '路线信息获取成功', 200)
+
+class AdminHospitalCreate(generics.CreateAPIView):
+    """管理员添加医院"""
+    serializer_class = HospitalSerializer
+    permission_classes = [IsAuthenticated, IsSystemAdmin]
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        if not serializer.is_valid():
+            return error_response(serializer.errors, 400)
+        hospital = serializer.save()
+        return success_response(HospitalSerializer(hospital).data, '创建成功')
+
+
+class AssignDoctorHospital(APIView):
+    """管理员为医生分配或变更医院"""
+    permission_classes = [IsAuthenticated, IsSystemAdmin]
+
+    def post(self, request, *args, **kwargs):
+        doctor_id = request.data.get('doctor_id')
+        hospital_id = request.data.get('hospital_id')  # 允许为空表示取消分配
+        if not doctor_id:
+            return error_response('doctor_id必填', 400)
+        try:
+            doctor = Doctor.objects.get(id=doctor_id)
+        except Doctor.DoesNotExist:
+            return error_response('医生不存在', 404)
+
+        if hospital_id:
+            try:
+                hospital = Hospital.objects.get(id=hospital_id)
+            except Hospital.DoesNotExist:
+                return error_response('医院不存在', 404)
+            doctor.hospital = hospital
+        else:
+            doctor.hospital = None
+        doctor.save(update_fields=['hospital'])
+        from doctors.serializers import DoctorSerializer
+        return success_response(DoctorSerializer(doctor).data, '分配成功')
 

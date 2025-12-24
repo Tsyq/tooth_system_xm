@@ -12,8 +12,8 @@ class HospitalSerializer(serializers.ModelSerializer):
         model = Hospital
         fields = [
             'id', 'name', 'address', 'phone', 'latitude', 'longitude',
-            'image', 'rating', 'review_count', 'description', 'business_hours',
-            'visit_count', 'created_at', 'updated_at'
+            'image', 'rating', 'appointment_count', 'description', 'business_hours',
+            'created_at', 'updated_at'
         ]
-        read_only_fields = ['id', 'visit_count', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'created_at', 'updated_at']
 

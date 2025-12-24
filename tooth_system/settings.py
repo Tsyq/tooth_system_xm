@@ -1,4 +1,5 @@
 from pathlib import Path
+import os
 from datetime import timedelta
 from decouple import config
 
@@ -45,7 +46,6 @@ INSTALLED_APPS = [
     'ai_inquiry',
     'uploads',
     'statistics',
-    'comment',
 ]
 
 MIDDLEWARE = [
@@ -147,15 +147,22 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 AUTH_USER_MODEL = 'user.User'
 
+# Ensure log directories exist for file handlers
+for _log_dir in [BASE_DIR / 'user' / 'log']:
+    try:
+        os.makedirs(_log_dir, exist_ok=True)
+    except Exception:
+        pass
+
 REST_FRAMEWORK = {
     # 默认认证类
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'rest_framework_simplejwt.authentication.JWTAuthentication',
     ),
     
-    # 默认权限类
+    # 默认权限类 - 改为允许所有，各视图自行定义权限
     'DEFAULT_PERMISSION_CLASSES': (
-        'rest_framework.permissions.IsAuthenticated',
+        'rest_framework.permissions.AllowAny',
     ),
     
     # 分页设置
@@ -174,8 +181,11 @@ REST_FRAMEWORK = {
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
 }
 
+# 禁用Django自动添加尾部斜杠
+APPEND_SLASH = False
+
 SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(hours=2),      # Access Token有效期2小时
+    'ACCESS_TOKEN_LIFETIME': timedelta(hours=24),      # Access Token有效期2小时
     'REFRESH_TOKEN_LIFETIME': timedelta(days=30),     # Refresh Token有效期30天
     'ROTATE_REFRESH_TOKENS': True,                   # 刷新时轮换Refresh Token
     'BLACKLIST_AFTER_ROTATION': True,                # 轮换后加入黑名单
@@ -213,21 +223,10 @@ LOGGING = {
             'filename': 'user/log/user_creation.log',
             'formatter': 'detailed',
         },
-        'comment_update_file': {
-            'level': 'INFO',
-            'class': 'logging.FileHandler',
-            'filename': 'comment/log/comment_updates.log',
-            'formatter': 'detailed',
-        },
     },
     'loggers': {
         'user_creation_logger': {
             'handlers': ['user_creation_file'],
-            'level': 'INFO',
-            'propagate': False,
-        },
-        'comment_update_logger': {
-            'handlers': ['comment_update_file'],
             'level': 'INFO',
             'propagate': False,
         },
