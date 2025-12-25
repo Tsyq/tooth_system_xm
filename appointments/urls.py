@@ -18,6 +18,5 @@ urlpatterns = [
     # POST /appointments/{appointment_id}/cancel/ - 取消预约
     # POST /appointments/{appointment_id}/checkin/ - 预约签到
     # POST /appointments/{appointment_id}/complete/ - 医生端完成预约
-    # POST /appointments/{appointment_id}/update-status/ - 医生端更新预约状态（包括设置no-show）
 ]
 
