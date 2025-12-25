@@ -81,7 +81,7 @@ class DoctorDetail(generics.RetrieveAPIView):
     lookup_field = 'pk'
     
     def retrieve(self, request, *args, **kwargs):
-        """获取医生详情（含评价列表）"""
+        """获取医生详情（含评价列表和排班）"""
         try:
             instance = self.get_object()
         except Doctor.DoesNotExist:
@@ -115,6 +115,21 @@ class DoctorDetail(generics.RetrieveAPIView):
             'page_size': page_size,
             'results': review_serializer.data
         }
+        
+        # 获取该医生的排班信息（最多一周）
+        from datetime import date, timedelta
+        today = date.today()
+        week_later = today + timedelta(days=7)
+        
+        schedules = Schedule.objects.filter(
+            doctor=instance,
+            status='active',
+            date__gte=today,
+            date__lte=week_later
+        ).order_by('date')
+        
+        schedule_serializer = ScheduleSerializer(schedules, many=True)
+        data['schedules'] = schedule_serializer.data
         
         return success_response(data)
 
