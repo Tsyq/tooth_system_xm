@@ -536,3 +536,25 @@ class DoctorApply(generics.CreateAPIView):
 
         return success_response(DoctorSerializer(doctor).data, '申请已提交')
 
+
+class SetDoctorAsAdmin(APIView):
+    """设置医生为管理员医生（系统管理员操作）"""
+    permission_classes = [IsAuthenticated, IsSystemAdmin]
+
+    def post(self, request, pk):
+        """设置医生为管理员医生"""
+        try:
+            doctor = Doctor.objects.get(pk=pk)
+        except Doctor.DoesNotExist:
+            return error_response(DOCTOR_NOT_FOUND, 404)
+        
+        # 获取请求参数，支持设置或取消管理员医生
+        is_admin = request.data.get('is_admin', True)
+        
+        # 更新医生的is_admin字段
+        doctor.is_admin = bool(is_admin)
+        doctor.save(update_fields=['is_admin', 'updated_at'])
+        
+        message = '设置为管理员医生成功' if doctor.is_admin else '取消管理员医生成功'
+        return success_response(DoctorSerializer(doctor).data, message)
+
