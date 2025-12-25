@@ -23,7 +23,18 @@ class RecordViewSet(viewsets.ModelViewSet):
         
         if page is not None:
             serializer = self.get_serializer(page, many=True)
-            return self.get_paginated_response(serializer.data)
+            # 获取分页响应并添加page和page_size字段
+            paginated_data = self.get_paginated_response(serializer.data)
+            # 获取当前页码和每页大小
+            paginator = self.paginator
+            current_page = int(request.query_params.get('page', 1))
+            page_size = paginator.page_size if hasattr(paginator, 'page_size') else int(request.query_params.get('page_size', 20))
+            
+            # 构建符合前端期望的格式
+            response_data = paginated_data.data
+            response_data['page'] = current_page
+            response_data['page_size'] = page_size
+            return success_response(response_data)
         
         serializer = self.get_serializer(queryset, many=True)
         return success_response(serializer.data)

@@ -33,3 +33,31 @@ class Doctor(models.Model):
     def __str__(self):
         return f'{self.name} - {self.hospital.name}'
 
+
+class Schedule(models.Model):
+    """医生排班模型"""
+    STATUS_CHOICES = [
+        ('active', '可预约'),
+        ('inactive', '不可预约'),
+        ('cancelled', '已取消'),
+    ]
+    
+    doctor = models.ForeignKey(Doctor, on_delete=models.CASCADE, related_name='schedules')
+    hospital = models.ForeignKey(Hospital, on_delete=models.CASCADE, related_name='schedules')
+    date = models.DateField('排班日期')
+    start_time = models.CharField('开始时间', max_length=5, default='09:00')  # HH:mm格式
+    end_time = models.CharField('结束时间', max_length=5, default='17:00')  # HH:mm格式
+    status = models.CharField('状态', max_length=20, choices=STATUS_CHOICES, default='active')
+    max_appointments = models.IntegerField('最大预约数', default=10)
+    created_at = models.DateTimeField('创建时间', auto_now_add=True)
+    updated_at = models.DateTimeField('更新时间', auto_now=True)
+    
+    class Meta:
+        db_table = 'schedule'
+        verbose_name = '排班'
+        verbose_name_plural = '排班'
+        ordering = ['date', 'start_time']
+        unique_together = [['doctor', 'date', 'start_time']]  # 防止重复排班
+    
+    def __str__(self):
+        return f'{self.doctor.name} - {self.date} {self.start_time}-{self.end_time}'
