@@ -80,3 +80,27 @@ class AppointmentSerializer(serializers.ModelSerializer):
         
         return super().create(validated_data)
 
+
+class CheckInSerializer(serializers.Serializer):
+    """用户签到序列化器"""
+    latitude = serializers.FloatField(
+        required=True,
+        help_text='用户当前位置的纬度'
+    )
+    longitude = serializers.FloatField(
+        required=True,
+        help_text='用户当前位置的经度'
+    )
+    
+    def validate(self, attrs):
+        """验证经纬度范围"""
+        lat = attrs.get('latitude')
+        lon = attrs.get('longitude')
+        
+        # 基本范围检查（地球坐标范围）
+        if not (-90 <= lat <= 90):
+            raise serializers.ValidationError({'latitude': '纬度必须在 -90 到 90 之间'})
+        if not (-180 <= lon <= 180):
+            raise serializers.ValidationError({'longitude': '经度必须在 -180 到 180 之间'})
+        
+        return attrs

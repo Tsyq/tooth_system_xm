@@ -1,16 +1,43 @@
 """
 预约视图
 """
+from datetime import datetime
+from django.utils import timezone
+from django.db.models import Q
 from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from django.utils import timezone
 from datetime import datetime, timedelta
 from math import radians, sin, cos, sqrt, atan2
+from rest_framework.response import Response
+from datetime import timedelta
+import math
+from doctors.models import Doctor, Schedule
+from hospitals.models import Hospital
 from .models import Appointment
-from .serializers import AppointmentSerializer
+from .serializers import AppointmentSerializer, CheckInSerializer
 from utils.response import success_response, error_response
 from utils.permissions import IsDoctor
+
+
+def haversine_distance(lat1, lon1, lat2, lon2):
+    """
+    计算两点之间的直线距离（单位：米）
+    使用 Haversine 公式
+    """
+    R = 6371000  # 地球半径（米）
+    
+    lat1_rad = math.radians(lat1)
+    lat2_rad = math.radians(lat2)
+    delta_lat = math.radians(lat2 - lat1)
+    delta_lon = math.radians(lon2 - lon1)
+    
+    a = math.sin(delta_lat / 2) ** 2 + math.cos(lat1_rad) * math.cos(lat2_rad) * math.sin(delta_lon / 2) ** 2
+    c = 2 * math.asin(math.sqrt(a))
+    distance = R * c
+    
+    return distance
 
 
 class AppointmentViewSet(viewsets.ModelViewSet):
@@ -55,9 +82,62 @@ class AppointmentViewSet(viewsets.ModelViewSet):
             response_data['page_size'] = page_size
             return success_response(response_data)
         
-        serializer = self.get_serializer(queryset, many=True)
-        return success_response(serializer.data)
-    
+        # 只检查待就诊状态的预约（全局，不限于当前用户）
+        upcoming_appointments = Appointment.objects.filter(status='upcoming').select_related('user')
+        
+        for appointment in upcoming_appointments:
+            # 计算预约时间
+            appt_dt = timezone.make_aware(
+                datetime.combine(
+                    appointment.appointment_date,
+                    datetime.strptime(appointment.appointment_time, '%H:%M').time()
+                )
+            )
+            # 允许迟到30分钟
+            latest_checkin = appt_dt + timedelta(minutes=30)
+            
+            # 如果超过签到时间，标记为no-show并累加爽约次数
+            if now > latest_checkin:
+                # 更新预约状态
+                appointment.status = 'no-show'
+                appointment.save(update_fields=['status', 'updated_at'])
+                
+                # 累加用户爽约次数（使用 F 表达式避免竞态条件）
+                from django.db.models import F
+                appointment.user.__class__.objects.filter(id=appointment.user.id).update(
+                    no_show_count=F('no_show_count') + 1
+                )
+
+    def list(self, request, *args, **kwargs):
+        """获取预约列表（手动分页，返回与接口文档一致结构）"""
+        queryset = self.get_queryset()
+
+        # 手动分页
+        try:
+            page = int(request.query_params.get('page', 1))
+        except (TypeError, ValueError):
+            page = 1
+        try:
+            page_size = int(request.query_params.get('page_size', 10))
+        except (TypeError, ValueError):
+            page_size = 10
+        if page <= 0:
+            page = 1
+        if page_size <= 0:
+            page_size = 10
+
+        total = queryset.count()
+        start = (page - 1) * page_size
+        end = start + page_size
+        page_qs = queryset[start:end]
+        serializer = self.get_serializer(page_qs, many=True)
+        return success_response({
+            'count': total,
+            'page': page,
+            'page_size': page_size,
+            'results': serializer.data
+        })
+
     def retrieve(self, request, *args, **kwargs):
         """获取预约详情"""
         instance = self.get_object()
@@ -114,7 +194,7 @@ class AppointmentViewSet(viewsets.ModelViewSet):
     
     @action(detail=True, methods=['post'], url_path='cancel')
     def cancel(self, request, pk=None):
-        """取消预约"""
+        """取消预约：仅可取消未完成/未取消的预约"""
         appointment = self.get_object()
         
         # 1. 验证用户权限：只能取消自己的预约
@@ -147,7 +227,7 @@ class AppointmentViewSet(viewsets.ModelViewSet):
     
     @action(detail=True, methods=['post'], url_path='checkin')
     def checkin(self, request, pk=None):
-        """预约签到"""
+        """用户根据定位签到到预约（时间窗口 + 距离校验）"""
         appointment = self.get_object()
         
         # 1. 验证用户权限：只能对自己的预约进行签到
@@ -232,8 +312,26 @@ class AppointmentViewSet(viewsets.ModelViewSet):
     
     @action(detail=True, methods=['post'], url_path='complete', permission_classes=[IsAuthenticated, IsDoctor])
     def complete(self, request, pk=None):
-        """医生端完成预约"""
+        """医生端完成预约：仅该预约对应医生可操作"""
         appointment = self.get_object()
-        # 具体业务逻辑待实现
+        try:
+            doctor = request.user.doctor_profile
+        except Doctor.DoesNotExist:
+            return error_response('医生信息不存在', 404)
+
+        if appointment.doctor_id != doctor.id:
+            return error_response('无权限操作该预约', 403)
+        if appointment.status == 'cancelled':
+            return error_response('已取消预约不可完成', 400)
+        if appointment.status == 'completed':
+            return error_response('预约已完成', 400)
+
+        appointment.status = 'completed'
+        appointment.save()
         return success_response(None, '完成成功')
+
+    @action(detail=True, methods=['get', 'post'], url_path='route')
+    def route(self, request, pk=None):
+        # 已废弃：路线规划改为基于医院ID的接口，请使用 /hospitals/<id>/route/
+        return error_response('路线接口已迁移至医院模块：/hospitals/<id>/route/', 410)
 

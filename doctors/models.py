@@ -12,7 +12,7 @@ class Doctor(models.Model):
     name = models.CharField('姓名', max_length=50)
     title = models.CharField('职称', max_length=50)
     specialty = models.CharField('专科', max_length=50)
-    hospital = models.ForeignKey(Hospital, on_delete=models.CASCADE, related_name='doctors')
+    hospital = models.ForeignKey(Hospital, on_delete=models.CASCADE, related_name='doctors', null=True, blank=True)
     avatar = models.URLField('头像', blank=True, null=True)
     score = models.FloatField('评分', default=0.0)
     reviews = models.IntegerField('评价数量', default=0)
@@ -21,6 +21,16 @@ class Doctor(models.Model):
     experience = models.CharField('经验', max_length=200, blank=True)
     is_online = models.BooleanField('是否在线', default=False)
     is_admin = models.BooleanField('是否为管理员', default=False)
+    # 审核相关字段
+    AUDIT_STATUS_CHOICES = [
+        ('pending', '待审核'),
+        ('approved', '已通过'),
+        ('rejected', '已拒绝'),
+    ]
+    audit_status = models.CharField('审核状态', max_length=10, choices=AUDIT_STATUS_CHOICES, default='pending')
+    applied_at = models.DateTimeField('申请时间', auto_now_add=True)
+    audited_at = models.DateTimeField('审核时间', blank=True, null=True)
+    rejected_reason = models.CharField('拒绝原因', max_length=200, blank=True)
     created_at = models.DateTimeField('创建时间', auto_now_add=True)
     updated_at = models.DateTimeField('更新时间', auto_now=True)
     

@@ -1,13 +1,27 @@
 from rest_framework import generics, status
 from .serializers import UserSerializer, UserLogOutSerializer, UserLoginSerializer
+from .serializers import ChangePasswordSerializer
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework.permissions import IsAuthenticated
 from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework_simplejwt.views import TokenRefreshView
+from rest_framework_simplejwt.settings import api_settings
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import AllowAny
 from utils.response import success_response, error_response
+from django.core.mail import send_mail
+from django.conf import settings
 from django.contrib.auth import get_user_model
+from rest_framework.parsers import MultiPartParser, FormParser
+from django.utils import timezone
+from django.core.files.storage import default_storage
+from django.core.files.base import ContentFile
+import os
+import uuid
+from utils.permissions import IsSystemAdmin
+from appointments.models import Appointment
+from datetime import datetime, timedelta
 
 
 class CreateUser(generics.CreateAPIView):
@@ -18,53 +32,29 @@ class CreateUser(generics.CreateAPIView):
     permission_classes = [AllowAny]
 
     def create(self, request, *args, **kwargs):
-
         serializer = self.get_serializer(data=request.data)
-        
-        try:
-            # 验证数据
-            serializer.is_valid(raise_exception=True)
-            
-            # 创建用户
-            user = serializer.save()
-            
-            # 构建返回数据（符合接口文档格式）
-            response_data = {
-                'user_id': user.id,
-                'name': user.name,
-                'phone': user.phone,
-                'role': user.role,
-                'status': user.status,
-            }
-            
-            # 使用统一响应格式
-            return success_response(
-                data=response_data,
-                message='注册成功',
-                code=200
-            )
-            
-        except Exception as e:
-            # 处理异常情况
-            error_message = str(e)
-            
-            # 如果是验证错误，提取更友好的错误信息
-            if hasattr(e, 'detail'):
-                if isinstance(e.detail, dict):
-                    # 提取第一个字段错误
-                    first_error = list(e.detail.values())[0]
-                    if isinstance(first_error, list):
-                        error_message = first_error[0]
-                    else:
-                        error_message = str(first_error)
-                else:
-                    error_message = str(e.detail)
-            
-            return error_response(
-                message=error_message,
-                code=400,
-                data=None
-            )
+
+        # 验证数据，异常由全局异常处理返回
+        serializer.is_valid(raise_exception=True)
+
+        # 创建用户
+        user = serializer.save()
+
+        # 构建返回数据（符合接口文档格式）
+        response_data = {
+            'user_id': user.id,
+            'name': user.name,
+            'phone': user.phone,
+            'role': user.role,
+            'status': user.status,
+        }
+
+        # 使用统一响应格式
+        return success_response(
+            data=response_data,
+            message='注册成功',
+            code=200
+        )
 
 
 class LoginView(APIView):
@@ -93,7 +83,6 @@ class LoginView(APIView):
             refresh_token = str(refresh)
             
             # 计算过期时间（秒）
-            from rest_framework_simplejwt.settings import api_settings
             expires_in = int(api_settings.ACCESS_TOKEN_LIFETIME.total_seconds())
             
             # 构建用户信息（使用序列化器确保格式一致）
@@ -108,6 +97,14 @@ class LoginView(APIView):
                 'user': user_data,
                 'expires_in': expires_in
             }
+
+            # 若有登录提示（医生待审核/被拒绝），追加到响应
+            login_notice = serializer.validated_data.get('login_notice')
+            rejected_reason = serializer.validated_data.get('rejected_reason')
+            if login_notice:
+                response_data['login_notice'] = login_notice
+            if rejected_reason:
+                response_data['rejected_reason'] = rejected_reason
             
             return success_response(
                 data=response_data,
@@ -138,14 +135,90 @@ class LoginView(APIView):
             )
 
 
+class RefreshTokenView(TokenRefreshView):
+    """
+    刷新Access Token并轮换Refresh Token
+    """
+    permission_classes = [AllowAny]
+
+    def post(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        token_data = serializer.validated_data
+        access_token = token_data.get('access')
+        refresh_token = token_data.get('refresh') or request.data.get('refresh')
+
+        response_data = {
+            'token': access_token,
+            'refresh_token': refresh_token,
+            'expires_in': int(api_settings.ACCESS_TOKEN_LIFETIME.total_seconds()),
+        }
+
+        return success_response(
+            data=response_data,
+            message='刷新成功',
+            code=200
+        )
+
+
 class UpdateRetrieveUser(generics.RetrieveUpdateAPIView):
     """An endpoint for updating and retrieving users"""
     authentication_classes = [JWTAuthentication, ]
     permission_classes = [IsAuthenticated, ]
     serializer_class = UserSerializer
+    parser_classes = (MultiPartParser, FormParser)
 
     def get_object(self):
         return self.request.user
+
+    def _save_avatar_if_present(self, request):
+        avatar_file = request.FILES.get('avatar')
+        if not avatar_file:
+            return None
+
+        allowed_content_types = {'image/jpeg', 'image/png', 'image/gif', 'image/webp'}
+        if avatar_file.content_type not in allowed_content_types:
+            raise ValueError('不支持的图片类型')
+        max_size = 5 * 1024 * 1024
+        if avatar_file.size > max_size:
+            raise ValueError('文件过大，最大5MB')
+
+        today = timezone.now()
+        ext = os.path.splitext(avatar_file.name)[1].lower() or '.jpg'
+        filename = f"{uuid.uuid4().hex}{ext}"
+        relative_dir = os.path.join('uploads', 'avatars', today.strftime('%Y'), today.strftime('%m'))
+        relative_path = os.path.join(relative_dir, filename).replace('\\', '/')
+        saved_path = default_storage.save(relative_path, ContentFile(avatar_file.read()))
+        url = f"{settings.MEDIA_URL}{saved_path}".replace('//', '/').replace(':/', '://')
+        return url
+
+    def put(self, request, *args, **kwargs):
+        user = self.get_object()
+        # 手工提取表单字段，避免 multipart 数据中的文件对象
+        update_data = {}
+        if 'name' in request.data:
+            update_data['name'] = request.data.get('name')
+        if 'email' in request.data:
+            update_data['email'] = request.data.get('email')
+        
+        # 处理头像文件
+        try:
+            avatar_url = self._save_avatar_if_present(request)
+            if avatar_url:
+                update_data['avatar'] = avatar_url
+        except ValueError as e:
+            return error_response(str(e), 400)
+
+        # 只传入提取的字段给序列化器
+        serializer = self.get_serializer(user, data=update_data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        self.perform_update(serializer)
+        return success_response(serializer.data, '更新成功', 200)
+
+    def patch(self, request, *args, **kwargs):
+        # 与 PUT 相同逻辑
+        return self.put(request, *args, **kwargs)
 
 
 class Logout(APIView):
@@ -161,9 +234,75 @@ class Logout(APIView):
         try:
             refresh_token = RefreshToken(refresh_token_string)
             refresh_token.blacklist()
-            return Response({'message': 'Successfully logged out'}, status=200)
-        except Exception:
-            return Response({'error': 'Failed to blacklist token'}, status=400)
+            return success_response(
+                data=None,
+                message='退出成功',
+                code=200
+            )
+        except Exception as e:
+            return error_response(
+                message=f'退出失败: {str(e)}',
+                code=400,
+                data=None
+            )
+
+
+# 管理端：用户列表 & 拉黑/解锁
+
+
+
+
+class AdminUserList(APIView):
+    """管理员获取用户列表，附带未按时签到次数"""
+    permission_classes = [IsAuthenticated, IsSystemAdmin]
+
+    def get(self, request):
+        user_model = get_user_model()
+        users = user_model.objects.exclude(role='admin').order_by('-created_at')
+        status_filter = request.query_params.get('status')
+        keyword = request.query_params.get('keyword')
+        if status_filter in ['active', 'pending', 'inactive']:
+            users = users.filter(status=status_filter)
+        if keyword:
+            users = users.filter(name__icontains=keyword)
+
+        results = []
+        for user in users.filter(role='user'):
+            # 直接使用数据库中的 no_show_count，避免与自动计算冲突
+            data = UserSerializer(user).data
+            results.append(data)
+
+        return success_response({'count': len(results), 'results': results})
+
+
+class AdminUserBlacklist(APIView):
+    """管理员拉黑指定用户"""
+    permission_classes = [IsAuthenticated, IsSystemAdmin]
+
+    def post(self, request, pk):
+        try:
+            user = get_user_model().objects.get(pk=pk)
+        except get_user_model().DoesNotExist:
+            return error_response('用户不存在', 404)
+        user.status = 'inactive'
+        user.is_active = False
+        user.save(update_fields=['status', 'is_active'])
+        return success_response(UserSerializer(user).data, '已拉黑')
+
+
+class AdminUserUnblacklist(APIView):
+    """管理员解除拉黑"""
+    permission_classes = [IsAuthenticated, IsSystemAdmin]
+
+    def post(self, request, pk):
+        try:
+            user = get_user_model().objects.get(pk=pk)
+        except get_user_model().DoesNotExist:
+            return error_response('用户不存在', 404)
+        user.status = 'active'
+        user.is_active = True
+        user.save(update_fields=['status', 'is_active'])
+        return success_response(UserSerializer(user).data, '已解除拉黑')
 
 
 class CaptchaView(APIView):
@@ -213,7 +352,7 @@ class CaptchaView(APIView):
                 elif platform.system() == 'Darwin':  # macOS
                     # macOS 系统字体
                     font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", 24)
-            except:
+            except Exception:
                 pass
             
             if font is None:
@@ -266,3 +405,77 @@ class CaptchaView(APIView):
                 code=500,
                 data=None
             )
+
+
+class ChangePasswordView(APIView):
+    """修改当前用户密码"""
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        serializer = ChangePasswordSerializer(data=request.data, context={'request': request})
+        try:
+            serializer.is_valid(raise_exception=True)
+            serializer.save()
+            return success_response(
+                data=None,
+                message='密码修改成功',
+                code=200
+            )
+        except Exception as e:
+            message = str(e)
+            if hasattr(e, 'detail'):
+                detail = e.detail
+                if isinstance(detail, dict) and detail:
+                    message = next(iter(detail.values()))
+                else:
+                    message = str(detail)
+            return error_response(
+                message=message,
+                code=400,
+                data=None
+            )
+
+
+class SendEmailCodeView(APIView):
+    """
+    发送邮箱验证码（用于修改密码）
+    要求已登录用户，且邮箱与账号绑定的邮箱一致
+    """
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        user = request.user
+        email = request.data.get('email') or getattr(user, 'email', None)
+
+        if not email:
+            return error_response(message='邮箱不能为空', code=400)
+
+        if not getattr(user, 'email', None):
+            return error_response(message='当前账号未绑定邮箱，请先绑定后再发送验证码', code=400)
+
+        if email != getattr(user, 'email', None):
+            return error_response(message='邮箱与当前账号不一致', code=400)
+
+        # 生成 6 位验证码
+        import random
+        code = f'{random.randint(0, 999999):06d}'
+
+        # 写入缓存 5 分钟
+        from django.core.cache import cache
+        cache.set(f'email_code_{email}', code, timeout=300)
+
+        # 发送邮件（需要在 settings 中配置 EMAIL_HOST 等）
+        subject = '密码修改验证码'
+        message = f'您的验证码是：{code}，5分钟内有效。'
+        try:
+            send_mail(subject, message, getattr(settings, 'DEFAULT_FROM_EMAIL', None), [email])
+        except Exception as e:
+            return error_response(message=f'邮件发送失败: {e}', code=400)
+
+        return success_response(
+            data={'expires_in': 300},
+            message='验证码已发送',
+            code=200
+        )

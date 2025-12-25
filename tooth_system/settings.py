@@ -1,4 +1,5 @@
 from pathlib import Path
+import os
 from datetime import timedelta
 from decouple import config
 
@@ -16,11 +17,12 @@ SECRET_KEY = config('SECRET_KEY', default='django-insecure-8^9bnj&3)2an&iqs^lt*u
 DEBUG = config('DEBUG', default=True, cast=bool)
 
 ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='localhost,127.0.0.1', cast=lambda v: [s.strip() for s in v.split(',')])
-
+ALLOWED_HOSTS = ['*']  # 允许所有 IP 访问（开发环境）
 
 # Application definition
 
 INSTALLED_APPS = [
+    'corsheaders',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -32,7 +34,6 @@ INSTALLED_APPS = [
     'rest_framework',
     'rest_framework_simplejwt',
     'rest_framework_simplejwt.token_blacklist',
-    'corsheaders',
     'drf_spectacular',  # API文档生成
     
     # 本地应用
@@ -45,13 +46,12 @@ INSTALLED_APPS = [
     'ai_inquiry',
     'uploads',
     'statistics',
-    'comment',
 ]
 
 MIDDLEWARE = [
+    'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
-    'corsheaders.middleware.CorsMiddleware',  # CORS中间件
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
@@ -147,15 +147,22 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 AUTH_USER_MODEL = 'user.User'
 
+# Ensure log directories exist for file handlers
+for _log_dir in [BASE_DIR / 'user' / 'log']:
+    try:
+        os.makedirs(_log_dir, exist_ok=True)
+    except Exception:
+        pass
+
 REST_FRAMEWORK = {
     # 默认认证类
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'rest_framework_simplejwt.authentication.JWTAuthentication',
     ),
     
-    # 默认权限类
+    # 默认权限类 - 改为允许所有，各视图自行定义权限
     'DEFAULT_PERMISSION_CLASSES': (
-        'rest_framework.permissions.IsAuthenticated',
+        'rest_framework.permissions.AllowAny',
     ),
     
     # 分页设置
@@ -173,6 +180,9 @@ REST_FRAMEWORK = {
     # API文档生成器
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
 }
+
+# 禁用Django自动添加尾部斜杠
+APPEND_SLASH = False
 
 SIMPLE_JWT = {
     'ACCESS_TOKEN_LIFETIME': timedelta(hours=24),      # Access Token有效期2小时
@@ -213,21 +223,10 @@ LOGGING = {
             'filename': 'user/log/user_creation.log',
             'formatter': 'detailed',
         },
-        'comment_update_file': {
-            'level': 'INFO',
-            'class': 'logging.FileHandler',
-            'filename': 'comment/log/comment_updates.log',
-            'formatter': 'detailed',
-        },
     },
     'loggers': {
         'user_creation_logger': {
             'handlers': ['user_creation_file'],
-            'level': 'INFO',
-            'propagate': False,
-        },
-        'comment_update_logger': {
-            'handlers': ['comment_update_file'],
             'level': 'INFO',
             'propagate': False,
         },
@@ -240,6 +239,9 @@ CORS_ALLOWED_ORIGINS = config(
     default='http://localhost:3000,http://127.0.0.1:3000',
     cast=lambda v: [s.strip() for s in v.split(',')]
 )
+
+# 允许所有跨域请求
+CORS_ALLOW_ALL_ORIGINS = True
 
 CORS_ALLOW_CREDENTIALS = True
 
@@ -280,3 +282,13 @@ CACHES = {
         'LOCATION': 'unique-snowflake',
     }
 }
+
+MAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
+EMAIL_USE_TLS = False  # 465端口使用SSL，所以TLS设为False
+EMAIL_USE_SSL = True   # 465端口需要开启SSL
+EMAIL_HOST = "smtp.163.com"
+EMAIL_PORT = 465
+EMAIL_HOST_USER = "19339867822@163.com"  # 发件人邮箱
+EMAIL_HOST_PASSWORD = "LAkAQD5GAZL9Qy2Q"  #授权码
+DEFAULT_FROM_EMAIL = EMAIL_HOST_USER #发件人必须与授权人保持一致
+CORS_ALLOW_ALL_ORIGINS = True
