@@ -63,7 +63,38 @@ class AppointmentViewSet(viewsets.ModelViewSet):
         if status_param:
             qs = qs.filter(status=status_param)
 
+        # 自动检查并标记超时未到场的预约
+        self._check_and_mark_no_show(qs)
+
         return qs.order_by('-appointment_date', '-appointment_time')
+
+    def _check_and_mark_no_show(self, queryset):
+        """检查并标记超时未到场的预约为no-show"""
+        now = timezone.now()
+        
+        # 只检查待就诊状态的预约
+        upcoming_appointments = queryset.filter(status='upcoming')
+        
+        for appointment in upcoming_appointments:
+            # 计算预约时间
+            appt_dt = timezone.make_aware(
+                datetime.combine(
+                    appointment.appointment_date,
+                    datetime.strptime(appointment.appointment_time, '%H:%M').time()
+                )
+            )
+            # 允许迟到30分钟
+            latest_checkin = appt_dt + timedelta(minutes=30)
+            
+            # 如果超过签到时间，标记为no-show
+            if now > latest_checkin:
+                appointment.status = 'no-show'
+                appointment.save(update_fields=['status', 'updated_at'])
+                
+                # 累加用户爽约次数
+                user = appointment.user
+                user.no_show_count += 1
+                user.save(update_fields=['no_show_count'])
 
     def list(self, request, *args, **kwargs):
         """获取预约列表（手动分页，返回与接口文档一致结构）"""
@@ -343,49 +374,6 @@ class AppointmentViewSet(viewsets.ModelViewSet):
         appointment.status = 'completed'
         appointment.save()
         return success_response(None, '完成成功')
-
-    @action(detail=True, methods=['post'], url_path='update-status', permission_classes=[IsAuthenticated, IsDoctor])
-    def update_status(self, request, pk=None):
-        """医生端更新预约状态：可将预约改为 no-show 等状态"""
-        appointment = self.get_object()
-        
-        # 验证医生身份
-        try:
-            doctor = request.user.doctor_profile
-        except Doctor.DoesNotExist:
-            return error_response('医生信息不存在', 404)
-
-        # 验证预约归属
-        if appointment.doctor_id != doctor.id:
-            return error_response('无权限操作该预约', 403)
-
-        # 获取新状态
-        new_status = request.data.get('status')
-        if not new_status:
-            return error_response('缺少 status 参数', 400)
-
-        # 验证状态合法性
-        valid_statuses = ['upcoming', 'completed', 'cancelled', 'checked-in', 'no-show']
-        if new_status not in valid_statuses:
-            return error_response(f'状态无效，可选值：{", ".join(valid_statuses)}', 400)
-
-        # 记录旧状态
-        old_status = appointment.status
-
-        # 特殊处理 no-show 状态：累加用户爽约次数
-        if new_status == 'no-show' and old_status != 'no-show':
-            user = appointment.user
-            user.no_show_count += 1
-            user.save(update_fields=['no_show_count'])
-
-        # 更新预约状态
-        appointment.status = new_status
-        appointment.save(update_fields=['status', 'updated_at'])
-
-        return success_response(
-            AppointmentSerializer(appointment).data,
-            f'状态已更新为 {new_status}'
-        )
 
     @action(detail=True, methods=['get', 'post'], url_path='route')
     def route(self, request, pk=None):
