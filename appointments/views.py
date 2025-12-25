@@ -344,6 +344,49 @@ class AppointmentViewSet(viewsets.ModelViewSet):
         appointment.save()
         return success_response(None, '完成成功')
 
+    @action(detail=True, methods=['post'], url_path='update-status', permission_classes=[IsAuthenticated, IsDoctor])
+    def update_status(self, request, pk=None):
+        """医生端更新预约状态：可将预约改为 no-show 等状态"""
+        appointment = self.get_object()
+        
+        # 验证医生身份
+        try:
+            doctor = request.user.doctor_profile
+        except Doctor.DoesNotExist:
+            return error_response('医生信息不存在', 404)
+
+        # 验证预约归属
+        if appointment.doctor_id != doctor.id:
+            return error_response('无权限操作该预约', 403)
+
+        # 获取新状态
+        new_status = request.data.get('status')
+        if not new_status:
+            return error_response('缺少 status 参数', 400)
+
+        # 验证状态合法性
+        valid_statuses = ['upcoming', 'completed', 'cancelled', 'checked-in', 'no-show']
+        if new_status not in valid_statuses:
+            return error_response(f'状态无效，可选值：{", ".join(valid_statuses)}', 400)
+
+        # 记录旧状态
+        old_status = appointment.status
+
+        # 特殊处理 no-show 状态：累加用户爽约次数
+        if new_status == 'no-show' and old_status != 'no-show':
+            user = appointment.user
+            user.no_show_count += 1
+            user.save(update_fields=['no_show_count'])
+
+        # 更新预约状态
+        appointment.status = new_status
+        appointment.save(update_fields=['status', 'updated_at'])
+
+        return success_response(
+            AppointmentSerializer(appointment).data,
+            f'状态已更新为 {new_status}'
+        )
+
     @action(detail=True, methods=['get', 'post'], url_path='route')
     def route(self, request, pk=None):
         # 已废弃：路线规划改为基于医院ID的接口，请使用 /hospitals/<id>/route/

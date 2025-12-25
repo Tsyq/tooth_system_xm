@@ -14,6 +14,7 @@ class Appointment(models.Model):
         ('completed', '已完成'),
         ('cancelled', '已取消'),
         ('checked-in', '已签到'),
+        ('no-show', '未到场'),
     ]
     
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='appointments')
