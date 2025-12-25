@@ -81,7 +81,7 @@ class DoctorDetail(generics.RetrieveAPIView):
     lookup_field = 'pk'
     
     def retrieve(self, request, *args, **kwargs):
-        """获取医生详情（含评价列表）"""
+        """获取医生详情（含评价列表和排班）"""
         try:
             instance = self.get_object()
         except Doctor.DoesNotExist:
@@ -115,6 +115,21 @@ class DoctorDetail(generics.RetrieveAPIView):
             'page_size': page_size,
             'results': review_serializer.data
         }
+        
+        # 获取该医生的排班信息（最多一周）
+        from datetime import date, timedelta
+        today = date.today()
+        week_later = today + timedelta(days=7)
+        
+        schedules = Schedule.objects.filter(
+            doctor=instance,
+            status='active',
+            date__gte=today,
+            date__lte=week_later
+        ).order_by('date')
+        
+        schedule_serializer = ScheduleSerializer(schedules, many=True)
+        data['schedules'] = schedule_serializer.data
         
         return success_response(data)
 
@@ -280,7 +295,7 @@ class ScheduleView(APIView):
         return success_response(serializer.data)
 
     def post(self, request):
-        """新建/修改排班：仅管理员医生可操作本院排班"""
+        """保存排班：替换模式。仅管理员医生可操作本院排班"""
         user = request.user
         try:
             doctor = user.doctor_profile
@@ -296,8 +311,6 @@ class ScheduleView(APIView):
         data = request.data
         hospital_id = data.get('hospital_id')
         doctor_ids = data.get('doctor_ids') or []
-        status_value = data.get('status', 'active')
-        overwrite = bool(data.get('overwrite', False))
         single_date = data.get('date')
         dates_payload = data.get('dates')
 
@@ -333,34 +346,39 @@ class ScheduleView(APIView):
                 return error_response(f'医生{doc.id}不属于本院', 400)
             doctors.append(doc)
 
-        created, skipped, overwritten_records = [], [], []
+        # 【关键改动】自动取消该日期未被指定的排班
+        for d in parsed_dates:
+            existing = Schedule.objects.filter(
+                hospital=hospital,
+                date=d,
+                status='active'
+            )
+            # 将不在 doctor_ids 中的排班标记为 cancelled
+            to_cancel = existing.exclude(doctor__id__in=doctor_ids)
+            to_cancel.update(status='cancelled')
+
+        # 创建或更新指定的排班
+        created_count = 0
         for d in parsed_dates:
             for doc in doctors:
                 obj, was_created = Schedule.objects.get_or_create(
                     hospital=hospital,
                     doctor=doc,
                     date=d,
-                    defaults={'status': status_value, 'created_by': request.user}
+                    defaults={'status': 'active', 'created_by': request.user}
                 )
                 if was_created:
-                    created.append(obj.id)
-                    continue
-                if overwrite:
-                    obj.status = status_value
-                    obj.created_by = request.user
-                    obj.save(update_fields=['status', 'created_by', 'updated_at'])
-                    overwritten_records.append(obj.id)
+                    created_count += 1
                 else:
-                    skipped.append(obj.id)
+                    # 如果已存在但状态为 cancelled，恢复为 active
+                    if obj.status == 'cancelled':
+                        obj.status = 'active'
+                        obj.created_by = request.user
+                        obj.save(update_fields=['status', 'created_by', 'updated_at'])
 
         return success_response({
-            'created_count': len(created),
-            'overwritten_count': len(overwritten_records),
-            'skipped_count': len(skipped),
-            'created_ids': created,
-            'overwritten_ids': overwritten_records,
-            'skipped_ids': skipped,
-        }, '排班上传完成')
+            'message': '排班保存成功'
+        }, '排班保存成功')
 
 
 class DoctorAuditList(generics.ListAPIView):
@@ -520,4 +538,26 @@ class DoctorApply(generics.CreateAPIView):
             pass
 
         return success_response(DoctorSerializer(doctor).data, '申请已提交')
+
+
+class SetDoctorAsAdmin(APIView):
+    """设置医生为管理员医生（系统管理员操作）"""
+    permission_classes = [IsAuthenticated, IsSystemAdmin]
+
+    def post(self, request, pk):
+        """设置医生为管理员医生"""
+        try:
+            doctor = Doctor.objects.get(pk=pk)
+        except Doctor.DoesNotExist:
+            return error_response(DOCTOR_NOT_FOUND, 404)
+        
+        # 获取请求参数，支持设置或取消管理员医生
+        is_admin = request.data.get('is_admin', True)
+        
+        # 更新医生的is_admin字段
+        doctor.is_admin = bool(is_admin)
+        doctor.save(update_fields=['is_admin', 'updated_at'])
+        
+        message = '设置为管理员医生成功' if doctor.is_admin else '取消管理员医生成功'
+        return success_response(DoctorSerializer(doctor).data, message)
 

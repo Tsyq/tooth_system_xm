@@ -45,6 +45,9 @@ class AppointmentViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         """按角色与查询参数过滤可见预约列表"""
+        # 先执行自动检查no-show（全局）
+        self._check_and_mark_no_show()
+        
         qs = Appointment.objects.select_related('user', 'doctor', 'hospital').all()
 
         # 仅普通用户看到自己的预约；医生看到自己的预约；管理员可见全部
@@ -64,6 +67,36 @@ class AppointmentViewSet(viewsets.ModelViewSet):
             qs = qs.filter(status=status_param)
 
         return qs.order_by('-appointment_date', '-appointment_time')
+
+    def _check_and_mark_no_show(self):
+        """检查并标记超时未到场的预约为no-show"""
+        now = timezone.now()
+        
+        # 只检查待就诊状态的预约（全局，不限于当前用户）
+        upcoming_appointments = Appointment.objects.filter(status='upcoming').select_related('user')
+        
+        for appointment in upcoming_appointments:
+            # 计算预约时间
+            appt_dt = timezone.make_aware(
+                datetime.combine(
+                    appointment.appointment_date,
+                    datetime.strptime(appointment.appointment_time, '%H:%M').time()
+                )
+            )
+            # 允许迟到30分钟
+            latest_checkin = appt_dt + timedelta(minutes=30)
+            
+            # 如果超过签到时间，标记为no-show并累加爽约次数
+            if now > latest_checkin:
+                # 更新预约状态
+                appointment.status = 'no-show'
+                appointment.save(update_fields=['status', 'updated_at'])
+                
+                # 累加用户爽约次数（使用 F 表达式避免竞态条件）
+                from django.db.models import F
+                appointment.user.__class__.objects.filter(id=appointment.user.id).update(
+                    no_show_count=F('no_show_count') + 1
+                )
 
     def list(self, request, *args, **kwargs):
         """获取预约列表（手动分页，返回与接口文档一致结构）"""
