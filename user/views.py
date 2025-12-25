@@ -248,58 +248,12 @@ class Logout(APIView):
 
 
 # 管理端：用户列表 & 拉黑/解锁
-NO_SHOW_THRESHOLD = 5  # 未按时签到次数阈值
 
 
-def _calculate_no_show_count(user):
-    """只读计算未按时签到次数，不写回数据库、不触发自动拉黑。
-    用于管理员列表 GET 时展示最新的统计，但不改变状态。
-    """
-    now = timezone.now()
-    appointments = Appointment.objects.filter(user=user, status='upcoming')
-    count = 0
-    for appt in appointments:
-        appt_dt = timezone.make_aware(
-            datetime.combine(
-                appt.appointment_date,
-                datetime.strptime(appt.appointment_time, '%H:%M').time()
-            )
-        )
-        latest_checkin = appt_dt + timedelta(minutes=30)
-        if now > latest_checkin:
-            count += 1
-    return count
-
-
-def _compute_no_show_count(user):
-    """计算用户未按时签到次数并回写，依据预约超过时间窗口仍为upcoming"""
-    now = timezone.now()
-    appointments = Appointment.objects.filter(user=user, status='upcoming')
-    count = 0
-    for appt in appointments:
-        appt_dt = timezone.make_aware(
-            datetime.combine(
-                appt.appointment_date,
-                datetime.strptime(appt.appointment_time, '%H:%M').time()
-            )
-        )
-        latest_checkin = appt_dt + timedelta(minutes=30)
-        if now > latest_checkin:
-            count += 1
-    if user.no_show_count != count:
-        user.no_show_count = count
-        user.save(update_fields=['no_show_count'])
-    # 自动拉黑逻辑：超过阈值即禁用（使用 status 表示）
-    if count >= NO_SHOW_THRESHOLD:
-        if user.status != 'inactive' or user.is_active:
-            user.status = 'inactive'
-            user.is_active = False
-            user.save(update_fields=['status', 'is_active'])
-    return count
 
 
 class AdminUserList(APIView):
-    """管理员获取用户列表，附带未按时签到次数与拉黑状态"""
+    """管理员获取用户列表，附带未按时签到次数"""
     permission_classes = [IsAuthenticated, IsSystemAdmin]
 
     def get(self, request):
@@ -307,9 +261,6 @@ class AdminUserList(APIView):
         users = user_model.objects.exclude(role='admin').order_by('-created_at')
         status_filter = request.query_params.get('status')
         keyword = request.query_params.get('keyword')
-        recompute_param = request.query_params.get('recompute')
-        # 仅当显式传入 ?recompute=true/1 时，才执行写回计算与自动拉黑
-        recompute = str(recompute_param).lower() in {'true', '1'}
         if status_filter in ['active', 'pending', 'inactive']:
             users = users.filter(status=status_filter)
         if keyword:
@@ -317,9 +268,8 @@ class AdminUserList(APIView):
 
         results = []
         for user in users.filter(role='user'):
-            count = _compute_no_show_count(user) if recompute else _calculate_no_show_count(user)
+            # 直接使用数据库中的 no_show_count，避免与自动计算冲突
             data = UserSerializer(user).data
-            data['no_show_count'] = count
             results.append(data)
 
         return success_response({'count': len(results), 'results': results})
