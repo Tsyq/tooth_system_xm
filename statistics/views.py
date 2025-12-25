@@ -20,8 +20,8 @@ class HomeStatisticsView(APIView):
         """获取首页统计数据"""
         # 获取各项统计数据
         cooperation_clinics = Hospital.objects.count()
-        online_doctors = Doctor.objects.filter(is_online=True).count()
-        total_doctors = Doctor.objects.count()
+        online_doctors = Doctor.objects.filter(is_online=True, audit_status='approved').count()
+        total_doctors = Doctor.objects.filter(audit_status='approved').count()
         
         # 获取今日预约数
         today = datetime.now().date()
@@ -36,11 +36,11 @@ class HomeStatisticsView(APIView):
         ).count()
         
         # 计算预约完成率
-        appointment_efficiency = (
+        appointment_completion_rate = (
             (today_completed / today_appointments * 100) 
             if today_appointments > 0 else 0
         )
-        appointment_efficiency = round(appointment_efficiency, 2)
+        appointment_completion_rate = round(appointment_completion_rate, 2)
         
         # 获取总预约数
         total_appointments = Appointment.objects.count()
@@ -64,11 +64,11 @@ class HomeStatisticsView(APIView):
             created_at__date__lt=thirty_days_ago
         ).count()
         
-        revenue_growth = (
+        appointment_growth_rate = (
             ((last_30_days - thirty_to_sixty_days) / thirty_to_sixty_days * 100)
             if thirty_to_sixty_days > 0 else 0
         )
-        revenue_growth = round(revenue_growth, 2)
+        appointment_growth_rate = round(appointment_growth_rate, 2)
         
         # 获取热门医院前5（按预约次数）
         top_hospitals = Hospital.objects.order_by('-appointment_count')[:5].values(
@@ -83,8 +83,8 @@ class HomeStatisticsView(APIView):
         data = {
             # 关键指标
             'cooperation_clinics': cooperation_clinics,
-            'appointment_efficiency': appointment_efficiency,
-            'revenue_growth': revenue_growth,
+            'appointment_completion_rate': appointment_completion_rate,
+            'appointment_growth_rate': appointment_growth_rate,
             'patient_satisfaction': patient_satisfaction,
             'today_patients': today_appointments,
             'online_doctors': online_doctors,

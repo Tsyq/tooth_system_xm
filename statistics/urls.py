@@ -18,8 +18,8 @@ API端点说明：
        "message": "success",
        "data": {
            "cooperation_clinics": 10,              # 合作诊所数
-           "appointment_efficiency": 85.50,       # 预约完成率(%)
-           "revenue_growth": 12.30,                # 预约增长率(%)
+           "appointment_completion_rate": 85.50,  # 预约完成率(%)
+           "appointment_growth_rate": 12.30,       # 预约增长率(%)
            "patient_satisfaction": 4.85,          # 患者满意度(0-5分)
            "today_patients": 25,                  # 今日预约数
            "online_doctors": 15,                  # 在线医生数
