@@ -13,6 +13,7 @@ from .views import (
     DoctorAuditReject,
     DoctorApply,
     ScheduleView,
+    SetDoctorAsAdmin,
 )
 
 urlpatterns = [
@@ -28,5 +29,7 @@ urlpatterns = [
     path('audits/<int:pk>/reject/', DoctorAuditReject.as_view(), name='doctor-audit-reject'),  # 管理端审核拒绝 POST /doctors/audits/<id>/reject/
     # 申请入口
     path('apply/', DoctorApply.as_view(), name='doctor-apply'),  # 医生申请 POST /doctors/apply/
+    # 设置管理员医生
+    path('<int:pk>/set-admin/', SetDoctorAsAdmin.as_view(), name='set-doctor-as-admin'),  # 管理端设置医生为管理员医生 POST /doctors/<id>/set-admin/
 ]
 
