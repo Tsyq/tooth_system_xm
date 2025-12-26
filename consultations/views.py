@@ -145,10 +145,6 @@ class ConsultationViewSet(viewsets.ModelViewSet):
         """发送消息：根据当前用户角色判断发送者"""
         consultation = self.get_object()
         
-        # 校验会话状态
-        if consultation.status == 'closed':
-            return error_response('会话已关闭，无法发送消息', 400)
-        
         text = request.data.get('text')
         if not text:
             return error_response('text为必填项', 400)
@@ -161,12 +157,19 @@ class ConsultationViewSet(viewsets.ModelViewSet):
                 if consultation.doctor_id != doctor.id:
                     return error_response('无权限发送该会话消息', 403)
                 sender = 'doctor'
+                # 医生不能向已关闭的会话发送消息
+                if consultation.status == 'closed':
+                    return error_response('会话已关闭，无法发送消息', 400)
             except Doctor.DoesNotExist:
                 return error_response('医生信息不存在', 404)
         else:
             if consultation.user_id != user.id:
                 return error_response('无权限发送该会话消息', 403)
             sender = 'user'
+            # 患者向已关闭的会话发送消息时，自动重新开启会话
+            if consultation.status == 'closed':
+                consultation.status = 'active'
+                consultation.save(update_fields=['status', 'updated_at'])
         
         # 创建消息
         message = Message.objects.create(
