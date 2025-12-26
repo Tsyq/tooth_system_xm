@@ -30,7 +30,7 @@ class ScheduleSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Schedule
-        fields = ['id', 'hospital_id', 'doctor_id', 'doctor_name', 'date', 'start_time', 'end_time', 
-                  'max_appointments', 'status', 'created_by_id', 'created_at', 'updated_at']
+        fields = ['id', 'hospital_id', 'doctor_id', 'doctor_name', 'date', 
+                  'status', 'created_by_id', 'created_at', 'updated_at']
         read_only_fields = ['id', 'hospital_id', 'doctor_id', 'doctor_name', 'created_by_id', 'created_at', 'updated_at']
 
