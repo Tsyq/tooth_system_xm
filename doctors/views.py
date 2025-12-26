@@ -252,7 +252,7 @@ class ScheduleView(APIView):
     permission_classes = [IsAuthenticated, IsDoctor]
 
     def get(self, request):
-        """查询排班：管理员医生看本院所有，普通医生仅看自己"""
+        """查询排班：管理员医生看本院所有，普通医生仅看自己。按日期去重，只返回每天一条记录（表示这一天要上班）"""
         user = request.user
         try:
             doctor = user.doctor_profile
@@ -290,8 +290,17 @@ class ScheduleView(APIView):
         if end:
             qs = qs.filter(date__lte=end)
 
-        qs = qs.order_by('date', 'doctor_id')
-        serializer = ScheduleSerializer(qs, many=True)
+        # 按日期去重：只返回每天一条记录（表示这一天要上班）
+        # 使用字典按日期分组，每个日期只保留第一条记录
+        seen_dates = {}
+        schedules_list = []
+        for schedule in qs.order_by('date', 'start_time', 'doctor_id'):
+            date_key = str(schedule.date)
+            if date_key not in seen_dates:
+                seen_dates[date_key] = True
+                schedules_list.append(schedule)
+
+        serializer = ScheduleSerializer(schedules_list, many=True)
         return success_response(serializer.data)
 
     def post(self, request):
