@@ -11,6 +11,7 @@ from .views import (
     AdminUserList,
     AdminUserBlacklist,
     AdminUserUnblacklist,
+    AdminUserBulkBlacklist,
 )
 
 urlpatterns = [
@@ -27,4 +28,5 @@ urlpatterns = [
     path('admin/users/', AdminUserList.as_view(), name='admin_user_list'),
     path('admin/users/<int:pk>/blacklist/', AdminUserBlacklist.as_view(), name='admin_user_blacklist'),
     path('admin/users/<int:pk>/unblacklist/', AdminUserUnblacklist.as_view(), name='admin_user_unblacklist'),
+    path('admin/users/blacklist-by-noshow/', AdminUserBulkBlacklist.as_view(), name='admin_user_blacklist_by_noshow'),
 ]
