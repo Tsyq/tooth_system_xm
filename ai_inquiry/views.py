@@ -167,26 +167,78 @@ class AIChatView(APIView):
             # 如果AI调用失败，返回友好的错误提示
             answer = f"抱歉，AI 服务暂时不可用，请稍后重试，或直接联系线下牙科医生就诊。（错误信息：{str(e)}）"
         
-        # 7. 保存 AI 回复
+        # 7. 从AI回答中提取实际推荐的医生（确保AI推荐的医生与返回给前端的列表一致）
+        ai_recommended_doctors = []
+        if recommended_doctors and answer:
+            # 提取所有候选医生的姓名
+            doctor_names = {d.get('name'): d for d in recommended_doctors if d.get('name')}
+            
+            # 从AI回答中查找提到的医生姓名
+            # 使用更精确的匹配方式：检查医生姓名是否在回答中出现
+            for name, doctor_info in doctor_names.items():
+                # 检查AI回答中是否包含该医生姓名
+                # 支持多种格式：姓名、姓名+医生、姓名+主任、姓名+医师、姓名+职称等
+                name_patterns = [
+                    name,  # 直接匹配姓名
+                    f"{name}医生",
+                    f"{name}主任",
+                    f"{name}医师",
+                    f"{name}大夫",
+                    f"推荐{name}",
+                    f"为您推荐{name}",
+                    f"我为您推荐{name}",
+                    f"推荐您{name}",
+                ]
+                
+                # 检查是否匹配任何模式
+                if any(pattern in answer for pattern in name_patterns):
+                    ai_recommended_doctors.append(doctor_info)
+            
+            # 如果AI回答中没有找到任何医生，但系统有推荐医生，说明AI可能没有推荐
+            # 此时返回空列表，前端就不会显示医生列表
+            # 如果AI明确说"建议到XX科室就诊"等，也不返回医生列表
+            if not ai_recommended_doctors:
+                # 检查AI是否明确表示没有推荐医生
+                no_recommendation_keywords = [
+                    "暂未找到", "没有找到", "未找到", "暂未提供", "没有提供",
+                    "建议到", "建议您到", "建议前往", "建议联系", "建议您联系",
+                    "系统暂未", "系统没有", "没有特别匹配", "暂未找到匹配"
+                ]
+                # 如果AI回答中包含这些关键词，且没有提到具体医生姓名，则不返回医生列表
+                has_no_recommendation = any(keyword in answer for keyword in no_recommendation_keywords)
+                if has_no_recommendation:
+                    # 检查是否提到了具体医生姓名（更严格的检查）
+                    has_doctor_name = False
+                    for name in doctor_names.keys():
+                        if name in answer:
+                            has_doctor_name = True
+                            break
+                    if not has_doctor_name:
+                        ai_recommended_doctors = []  # 明确不推荐医生
+        else:
+            # 如果没有候选医生或AI回答为空，返回空列表
+            ai_recommended_doctors = []
+        
+        # 8. 保存 AI 回复
         AIChatMessage.objects.create(
             user=user,
             role='assistant',
             content=answer
         )
         
-        # 8. 保存推荐日志
+        # 9. 保存推荐日志（保存AI实际推荐的医生）
         with transaction.atomic():
             AIRecommendationLog.objects.create(
                 user=user,
                 raw_question=message,
                 structured_intent=intent,
-                recommended_doctors=recommended_doctors,
+                recommended_doctors=ai_recommended_doctors,  # 保存AI实际推荐的医生
             )
         
-        # 9. 组装响应
+        # 10. 组装响应（只返回AI实际推荐的医生）
         resp_data = {
             "answer": answer,
-            "recommended_doctors": recommended_doctors,
+            "recommended_doctors": ai_recommended_doctors,  # 只返回AI实际推荐的医生
             "suggestion_level": intent.get("priority_level", "info"),
         }
         resp_serializer = AIChatResponseSerializer(data=resp_data)
