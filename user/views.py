@@ -13,6 +13,7 @@ from utils.response import success_response, error_response
 from django.core.mail import send_mail
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.core.cache import cache
 from rest_framework.parsers import MultiPartParser, FormParser
 from django.utils import timezone
 from django.core.files.storage import default_storage
@@ -105,6 +106,14 @@ class LoginView(APIView):
                 response_data['login_notice'] = login_notice
             if rejected_reason:
                 response_data['rejected_reason'] = rejected_reason
+
+            # 登录成功后清理验证码键，避免二次请求误判
+            captcha_id = serializer.validated_data.get('captcha_id')
+            if captcha_id:
+                cache.delete_many([
+                    f'captcha_{captcha_id}',
+                    f'captcha_used_{captcha_id}',
+                ])
             
             return success_response(
                 data=response_data,
