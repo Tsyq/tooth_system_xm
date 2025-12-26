@@ -41,27 +41,38 @@ class UserSerializer(serializers.ModelSerializer):
         return attrs
 
     def create(self, validated_data):
+        from django.contrib.auth import get_user_model
+        from django.db import IntegrityError
+
         password = validated_data.pop('password', None)
         if not password:
-            # 注册必须提供密码
             raise serializers.ValidationError({'password': '密码为必填'})
-        
-        # 设置默认角色为 user（如果未提供）
+
+        # 取出手机号，确保不会被误用作更新已有用户
+        phone = validated_data.get('phone')
+        if not phone:
+            raise serializers.ValidationError({'phone': '手机号为必填'})
+
+        # 预检手机号唯一性，防止覆盖或重复创建（并发仍由 DB 抛错保护）
+        if get_user_model().objects.filter(phone=phone).exists():
+            raise serializers.ValidationError({'phone': '手机号已注册'})
+
+        # 设置默认角色和状态
         role = validated_data.get('role', 'user')
         validated_data['role'] = role
-        
-        # 如果注册的是医生，状态设为待审核；普通用户为激活状态
         if role == 'doctor':
             validated_data['status'] = 'pending'
-            # 医生在未审核通过前不可激活
             validated_data['is_active'] = False
         else:
             validated_data['status'] = 'active'
 
-        user = get_user_model().objects.create_user(**validated_data)
-        if password:
-            user.set_password(password)
-            user.save()
+        # 调用自定义 manager 创建用户，传入 phone 与 password
+        try:
+            user = get_user_model().objects.create_user(phone=phone, password=password, **{k: v for k, v in validated_data.items() if k != 'phone'})
+        except IntegrityError:
+            # 并发场景下若仍然违反唯一性约束，返回友好错误
+            raise serializers.ValidationError({'phone': '手机号已注册'})
+
         return user
 
     def update(self, instance, validated_data):
