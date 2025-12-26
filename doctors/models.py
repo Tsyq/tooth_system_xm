@@ -45,7 +45,7 @@ class Doctor(models.Model):
 
 
 class Schedule(models.Model):
-    """医生排班（按时间段）"""
+    """医生排班"""
     STATUS_CHOICES = [
         ('active', '有效'),
         ('cancelled', '已取消'),
@@ -54,9 +54,6 @@ class Schedule(models.Model):
     hospital = models.ForeignKey(Hospital, on_delete=models.CASCADE, related_name='schedules')
     doctor = models.ForeignKey(Doctor, on_delete=models.CASCADE, related_name='schedules')
     date = models.DateField('排班日期')
-    start_time = models.CharField('开始时间', max_length=5, help_text='格式：HH:mm，如 08:00', default='08:00')
-    end_time = models.CharField('结束时间', max_length=5, help_text='格式：HH:mm，如 08:30', default='08:30')
-    max_appointments = models.IntegerField('该时间段最多预约数', default=3)
     status = models.CharField('状态', max_length=10, choices=STATUS_CHOICES, default='active')
     created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='created_schedules')
     created_at = models.DateTimeField('创建时间', auto_now_add=True)
@@ -67,10 +64,10 @@ class Schedule(models.Model):
         verbose_name = '排班'
         verbose_name_plural = '排班'
         constraints = [
-            models.UniqueConstraint(fields=['doctor', 'date', 'start_time'], name='unique_doctor_schedule_per_day'),
+            models.UniqueConstraint(fields=['doctor', 'date'], name='unique_doctor_schedule_per_day'),
         ]
-        ordering = ['-date', 'start_time', '-created_at']
+        ordering = ['-date', '-created_at']
 
     def __str__(self):
-        return f'{self.date} {self.start_time}-{self.end_time} {self.doctor.name} ({self.hospital.name}) {self.status}'
+        return f'{self.date} {self.doctor.name} ({self.hospital.name}) {self.status}'
 
