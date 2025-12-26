@@ -5,30 +5,22 @@ from django.core.cache import cache
 
 
 def verify_captcha(captcha_id, captcha_answer):
-    """
-    验证验证码
-    
-    Args:
-        captcha_id: 验证码ID
-        captcha_answer: 用户输入的验证码答案
-    
-    Returns:
-        bool: 验证是否通过
-    """
+    """验证验证码，允许短时间内的二次校验并防止并发误删。"""
     if not captcha_id or not captcha_answer:
         return False
-    
-    # 从缓存中获取验证码
-    cached_captcha = cache.get(f'captcha_{captcha_id}')
-    
+
+    cache_key = f'captcha_{captcha_id}'
+    used_key = f'captcha_used_{captcha_id}'
+
+    cached_captcha = cache.get(cache_key)
+    # 并发场景：验证码键被删除但标记存在，仍允许通过
     if cached_captcha is None:
-        return False  # 验证码已过期或不存在
-    
-    # 验证码不区分大小写
-    if cached_captcha.lower() == captcha_answer.lower():
-        # 验证成功后删除验证码（防止重复使用）
-        cache.delete(f'captcha_{captcha_id}')
+        return bool(cache.get(used_key, False))
+
+    if cached_captcha.lower() == str(captcha_answer).lower():
+        # 记录已使用标记，短暂容忍二次验证，避免前后端重复校验导致误判
+        cache.set(used_key, True, timeout=15)
         return True
-    
+
     return False
 
