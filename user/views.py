@@ -301,8 +301,50 @@ class AdminUserUnblacklist(APIView):
             return error_response('用户不存在', 404)
         user.status = 'active'
         user.is_active = True
-        user.save(update_fields=['status', 'is_active'])
+        # 解除拉黑后重置未按时签到次数，避免继续累加影响
+        user.no_show_count = 0
+        user.save(update_fields=['status', 'is_active', 'no_show_count'])
         return success_response(UserSerializer(user).data, '已解除拉黑')
+
+
+class AdminUserBulkBlacklist(APIView):
+    """管理员批量拉黑：no_show_count 超过阈值的用户"""
+    permission_classes = [IsAuthenticated, IsSystemAdmin]
+
+    def post(self, request):
+        """
+        请求体可选参数：
+        - threshold: int，默认为 5（表示 no_show_count > threshold）
+        返回：affected_count 与 affected_ids
+        """
+        from django.utils import timezone
+        try:
+            threshold = int(request.data.get('threshold', 5))
+        except (TypeError, ValueError):
+            return error_response('threshold 参数不合法，需为整数', 400)
+
+        user_model = get_user_model()
+        # 仅对普通用户进行处理，且排除已禁用的用户
+        qs = user_model.objects.filter(
+            role='user',
+            status__in=['active', 'pending'],
+            no_show_count__gt=threshold
+        )
+
+        ids = list(qs.values_list('id', flat=True))
+        affected_count = len(ids)
+
+        if affected_count == 0:
+            return success_response({'affected_count': 0, 'affected_ids': []}, '无需处理，未找到符合条件的用户')
+
+        # 批量更新为禁用，并更新更新时间
+        user_model.objects.filter(id__in=ids).update(
+            status='inactive',
+            is_active=False,
+            updated_at=timezone.now()
+        )
+
+        return success_response({'affected_count': affected_count, 'affected_ids': ids}, '已批量拉黑用户')
 
 
 class CaptchaView(APIView):
