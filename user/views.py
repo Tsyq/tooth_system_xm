@@ -14,7 +14,7 @@ from django.core.mail import send_mail
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
-from rest_framework.parsers import MultiPartParser, FormParser
+from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from django.utils import timezone
 from django.core.files.storage import default_storage
 from django.core.files.base import ContentFile
@@ -176,7 +176,10 @@ class UpdateRetrieveUser(generics.RetrieveUpdateAPIView):
     authentication_classes = [JWTAuthentication, ]
     permission_classes = [IsAuthenticated, ]
     serializer_class = UserSerializer
-    parser_classes = (MultiPartParser, FormParser)
+    # 兼容两种前端提交方式：
+    # - application/json（仅更新 name/email 等）
+    # - multipart/form-data（包含 avatar 文件上传）
+    parser_classes = (JSONParser, MultiPartParser, FormParser)
 
     def get_object(self):
         return self.request.user
