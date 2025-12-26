@@ -2,7 +2,7 @@
 文件上传视图
 """
 from rest_framework.views import APIView
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.parsers import MultiPartParser, FormParser
 from django.conf import settings
 from django.core.files.storage import default_storage
@@ -14,8 +14,13 @@ from utils.response import success_response, error_response
 
 
 class ImageUploadView(APIView):
-    """图片上传视图"""
-    permission_classes = [IsAuthenticated]
+    """图片上传视图
+
+    现在允许匿名上传（无需 Authorization header），用于医生申请时先上传头像。
+    如果请求中包含 `update_avatar=true` 且用户已登录，则会同步更新该用户的 `avatar` 字段；
+    否则仅返回文件 URL，不会修改任何用户数据。
+    """
+    permission_classes = [AllowAny]
     parser_classes = (MultiPartParser, FormParser)
 
     def post(self, request):
@@ -53,10 +58,15 @@ class ImageUploadView(APIView):
 
         # 是否更新用户头像
         update_avatar = request.data.get('update_avatar', 'false').lower() in ('true', '1')
-        if update_avatar:
-            user = request.user
-            user.avatar = full_url
-            user.save(update_fields=['avatar'])
+        # 仅在用户已认证时才更新头像，匿名上传不会修改用户记录
+        if update_avatar and getattr(request, 'user', None) and getattr(request.user, 'is_authenticated', False):
+            try:
+                user = request.user
+                user.avatar = full_url
+                user.save(update_fields=['avatar'])
+            except Exception:
+                # 若保存失败，不阻塞上传流程，仍返回 URL
+                pass
 
         return success_response({'url': full_url}, '上传成功')
 
@@ -68,7 +78,8 @@ class FileUploadView(APIView):
     - 可选参数：purpose 用途目录，可选 avatars/doctors/hospitals/records/others（默认 others）
     - 返回：文件可访问 URL 及元信息
     """
-    permission_classes = [IsAuthenticated]
+    # 允许匿名上传文件，前端在需要时把返回的 URL 填入后续表单（如医生申请）
+    permission_classes = [AllowAny]
     parser_classes = (MultiPartParser, FormParser)
 
     IMAGE_TYPES = {'.jpg', '.jpeg', '.png', '.gif', '.webp'}
