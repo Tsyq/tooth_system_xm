@@ -33,6 +33,7 @@ def haversine_distance(lat1, lon1, lat2, lon2):
     a = math.sin(delta_lat / 2) ** 2 + math.cos(lat1_rad) * math.cos(lat2_rad) * math.sin(delta_lon / 2) ** 2
     c = 2 * math.asin(math.sqrt(a))
     distance = R * c
+    return distance
     
     return distance
 
@@ -359,10 +360,10 @@ class AppointmentViewSet(viewsets.ModelViewSet):
             hospital.latitude, hospital.longitude
         )
 
-        CHECKIN_RADIUS = 500  # 允许签到半径 500m
+        CHECKIN_RADIUS = 1000  # 允许签到半径 1km
         if distance > CHECKIN_RADIUS:
             return error_response(
-                f'距离医院过远，当前距离 {distance:.0f}m，需在 {CHECKIN_RADIUS}m 范围内',
+                f'距离医院过远，当前距离 {distance:.0f}m，需在 {CHECKIN_RADIUS}m（1km）范围内',
                 400
             )
 
