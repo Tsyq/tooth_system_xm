@@ -336,7 +336,7 @@ class AppointmentViewSet(viewsets.ModelViewSet):
             hospital.latitude, hospital.longitude
         )
 
-        CHECKIN_RADIUS = 500  # 允许签到半径 500m
+        CHECKIN_RADIUS = 1000  # 允许签到半径 1000m
         if distance > CHECKIN_RADIUS:
             return error_response(
                 f'距离医院过远，当前距离 {distance:.0f}m，需在 {CHECKIN_RADIUS}m 范围内',

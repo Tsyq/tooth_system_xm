@@ -60,7 +60,9 @@ class HospitalList(generics.ListAPIView):
                 if h.latitude is not None and h.longitude is not None:
                     dist = self.haversine(user_lat, user_lon, h.latitude, h.longitude)
                     hospitals_with_distance.append((h, dist))
+            # 按距离排序（由近到远）
             hospitals_with_distance.sort(key=lambda x: x[1])
+            # 为后续非 nearby 分支保留基于 id 的 queryset（如果需要）
             hospitals_ids = [h[0].id for h in hospitals_with_distance]
             queryset = Hospital.objects.filter(id__in=hospitals_ids)
 
@@ -77,7 +79,7 @@ class HospitalList(generics.ListAPIView):
             page_size = None
 
         if filter_type == 'near':
-            # hospitals_with_distance 已按距离排序，使用列表切片保证顺序
+            # hospitals_with_distance 已按距离排序，使用列表切片保证顺序，并在结果中加入距离信息（公里，保留两位小数）
             total = len(hospitals_with_distance)
             if page_size is None or page_size <= 0:
                 page_size = total if total > 0 else 0
@@ -85,13 +87,25 @@ class HospitalList(generics.ListAPIView):
                 page_num = 1
             start = (page_num - 1) * page_size
             end = start + page_size
-            page_list = [h[0] for h in hospitals_with_distance][start:end]
-            serializer = self.get_serializer(page_list, many=True)
+            page_items = hospitals_with_distance[start:end]  # 切片后仍保持 (hospital, distance)
+            hospitals = [item[0] for item in page_items]
+            serializer = self.get_serializer(hospitals, many=True)
+            results = serializer.data
+            # 将距离信息插入对应序列化对象，按相同顺序
+            for idx, item in enumerate(page_items):
+                _, dist_km = item
+                # 保留两位小数
+                try:
+                    results[idx]['distance_km'] = round(dist_km, 2)
+                except Exception:
+                    # 兼容性保护：如果 serializer 返回不包含 dict，则跳过
+                    pass
+
             return success_response({
                 'count': total,
                 'page': page_num,
                 'page_size': page_size,
-                'results': serializer.data
+                'results': results
             })
 
         # 非 nearby 的普通分页（在数据库层切片）
