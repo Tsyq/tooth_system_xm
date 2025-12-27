@@ -309,7 +309,7 @@ class ScheduleView(APIView):
 
         data = request.data
         hospital_id = data.get('hospital_id')
-        doctor_ids = data.get('doctor_ids') or []
+        doctor_ids = data.get('doctor_ids')
         single_date = data.get('date')
         dates_payload = data.get('dates')
 
@@ -318,10 +318,13 @@ class ScheduleView(APIView):
             return error_response('只能管理本院排班', 403)
         hospital_id = doctor.hospital.id
 
-        if not doctor_ids:
+        if doctor_ids is None:
             return error_response('doctor_ids为必填项', 400)
         if not single_date and not dates_payload:
             return error_response('date或dates为必填项', 400)
+        
+        # 允许 doctor_ids 为空列表，用于清空某天的排班
+        doctor_ids = doctor_ids if isinstance(doctor_ids, list) else []
 
         # 解析日期列表
         parsed_dates = []
