@@ -57,7 +57,9 @@ def call_llm(prompt: str, *, system_prompt: Optional[str] = None, temperature: f
         headers["Authorization"] = f"Bearer {ZHIPU_API_KEY}"
 
     try:
-        resp = requests.post(ZHIPU_API_URL, json=payload, headers=headers, timeout=60)
+        # 设置超时时间为30秒（连接超时5秒，读取超时30秒），给大模型足够时间生成
+        # 意图抽取通常很快，但最终回答生成可能需要更长时间
+        resp = requests.post(ZHIPU_API_URL, json=payload, headers=headers, timeout=(5, 30))
         data = resp.json()
 
         # 智谱接口通常在 JSON 中包含 code / error 字段，非 200 需要视为失败

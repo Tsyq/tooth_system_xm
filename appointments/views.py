@@ -212,6 +212,29 @@ class AppointmentViewSet(viewsets.ModelViewSet):
         hospital.appointment_count += 1
         hospital.save(update_fields=['appointment_count'])
         
+        # 记录用户行为：预约医生（用于智能推荐）
+        try:
+            from ai_inquiry.models import UserBehavior
+            from ai_inquiry.services.user_profile import update_user_profile
+            
+            UserBehavior.objects.create(
+                user=user,
+                action='make_appointment',
+                doctor=doctor,
+                context={
+                    'appointment_date': str(appt_date),
+                    'appointment_time': appt_time,
+                    'hospital_id': hospital.id
+                },
+                score=3.0  # 预约行为权重较高
+            )
+            
+            # 异步更新用户画像（这里同步更新，实际可以放到后台任务）
+            update_user_profile(user, force_update=False)
+        except Exception as e:
+            # 行为记录失败不影响预约流程
+            print(f"记录用户行为失败: {e}")
+        
         return success_response(AppointmentSerializer(instance).data, '预约成功')
 
     def update(self, request, *args, **kwargs):

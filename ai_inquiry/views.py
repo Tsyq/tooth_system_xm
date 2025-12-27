@@ -3,6 +3,7 @@ AI问询视图
 """
 import json
 from datetime import datetime
+from typing import Set
 from rest_framework import viewsets
 from rest_framework.views import APIView
 from rest_framework.generics import ListAPIView
@@ -27,7 +28,87 @@ from ai_inquiry.services.retrieval import (
 from ai_inquiry.services.prompts import (
     build_intent_prompt,
     build_answer_prompt,
+    INTENT_EXTRACTION_SYSTEM_PROMPT,
 )
+
+
+def extract_intent_from_text(text: str) -> dict:
+    """从文本中提取意图信息，即使JSON被截断也能提取可用信息"""
+    import re
+    
+    default_intent = {"disease_category": "未知", "recommended_department": None, "priority_level": "info"}
+    
+    # 清理代码块标记
+    text = text.strip().replace('```json', '').replace('```', '').strip()
+    
+    # 提取第一个完整的JSON对象（支持嵌套）
+    brace_count = 0
+    start_idx = -1
+    for i, char in enumerate(text):
+        if char == '{':
+            if start_idx == -1:
+                start_idx = i
+            brace_count += 1
+        elif char == '}':
+            brace_count -= 1
+            if brace_count == 0 and start_idx != -1:
+                text = text[start_idx:i+1]
+                break
+    
+    # 修复常见的截断问题
+    if '"priority_level": "norma' in text:
+        text = text.replace('"priority_level": "norma', '"priority_level": "normal"')
+    elif '"priority_level": "urgen' in text:
+        text = text.replace('"priority_level": "urgen', '"priority_level": "urgent"')
+    
+    if not text.strip().endswith('}'):
+        last_comma = text.rfind(',')
+        text = text[:last_comma] + '}' if last_comma > 0 else text.rstrip().rstrip(',') + '}'
+    
+    # 尝试解析修复后的JSON
+    try:
+        intent = json.loads(text)
+        # 验证必要字段
+        if not isinstance(intent, dict):
+            return default_intent
+        
+        # 确保所有字段都存在
+        result = default_intent.copy()
+        result.update(intent)
+        
+        # 验证 priority_level 的值
+        if result.get("priority_level") not in ["info", "normal", "urgent"]:
+            result["priority_level"] = "info"
+        
+        return result
+    except (json.JSONDecodeError, AttributeError):
+        # 如果还是解析失败，尝试用正则表达式提取字段值
+        result = default_intent.copy()
+        
+        # 提取 disease_category
+        match = re.search(r'"disease_category"\s*:\s*"([^"]*)"', text)
+        if match:
+            result["disease_category"] = match.group(1)
+        
+        # 提取 recommended_department
+        match = re.search(r'"recommended_department"\s*:\s*"([^"]*)"', text)
+        if match:
+            result["recommended_department"] = match.group(1)
+        elif '"recommended_department": null' in text:
+            result["recommended_department"] = None
+        
+        # 提取 priority_level
+        match = re.search(r'"priority_level"\s*:\s*"([^"]*)"', text)
+        if match:
+            level = match.group(1)
+            if level in ["info", "normal", "urgent"]:
+                result["priority_level"] = level
+            elif "normal" in level.lower():
+                result["priority_level"] = "normal"
+            elif "urgent" in level.lower():
+                result["priority_level"] = "urgent"
+        
+        return result
 
 
 class InquiryViewSet(viewsets.ModelViewSet):
@@ -50,6 +131,9 @@ class AIChatView(APIView):
     
     def post(self, request):
         """处理AI对话请求"""
+        import time
+        total_start_time = time.time()
+        
         serializer = AIChatRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         
@@ -68,44 +152,44 @@ class AIChatView(APIView):
             content=message
         )
         
-        # 2. 获取最近 N 条历史消息，用于上下文
-        history_qs = AIChatMessage.objects.filter(user=user).order_by('-created_at')[:10]
-        history = [
-            {"role": m.role, "content": m.content}
-            for m in reversed(history_qs)  # 转回时间正序
-        ]
+        # 2. 获取最近 N 条历史消息，用于上下文（优化：只查询需要的字段）
+        history_qs = AIChatMessage.objects.filter(user=user).values('role', 'content').order_by('-created_at')[:10]
+        history = [{"role": m['role'], "content": m['content']} for m in reversed(list(history_qs))]
         
         # 3. 意图抽取（结构化 JSON）
         intent_prompt = build_intent_prompt(message, extra_info)
+        intent_start = time.time()
         try:
-            intent_raw = call_llm(intent_prompt, temperature=0.0)
+            intent_raw = call_llm(intent_prompt, system_prompt=INTENT_EXTRACTION_SYSTEM_PROMPT, temperature=0.0)
+            # 清理返回文本（去除可能的代码块标记和空白）
+            intent_raw = intent_raw.strip().replace('```json', '').replace('```', '').strip()
+            intent = json.loads(intent_raw)
+        except json.JSONDecodeError:
+            intent = extract_intent_from_text(intent_raw)
+        except (LLMCallError, Exception):
+            intent = {"disease_category": "未知", "recommended_department": None, "priority_level": "info"}
+        
+        # 4. 检索知识库（使用向量检索，失败自动回退）
+        try:
+            knowledge_list = retrieve_knowledge_snippets(message, limit=3, use_vector=True)
+        except Exception:
             try:
-                intent = json.loads(intent_raw)
-            except json.JSONDecodeError:
-                # 如果返回的不是纯JSON，尝试提取JSON部分
-                intent = {
-                    "disease_category": "未知",
-                    "recommended_department": None,
-                    "priority_level": "info",
-                }
-        except LLMCallError as e:
-            # 如果调用失败，使用默认意图
-            intent = {
-                "disease_category": "未知",
-                "recommended_department": None,
-                "priority_level": "info",
-            }
+                knowledge_list = retrieve_knowledge_snippets(message, limit=3, use_vector=False)
+            except Exception:
+                knowledge_list = []
         
-        # 4. 检索知识库
-        knowledge_list = retrieve_knowledge_snippets(message, limit=3)
-        
-        # 5. 根据意图、问题和知识库内容智能推荐医生（不在检索阶段限制数量）
-        recommended_doctors_all = retrieve_doctors_by_intent(
-            intent=intent,
-            question=message,
-            knowledge_list=knowledge_list,
-            limit=3  # 当前实现中已不再在函数内截断，仅作为兼容参数
-        )
+        # 5. 根据意图、问题和知识库内容推荐医生
+        try:
+            recommended_doctors_all = retrieve_doctors_by_intent(
+                intent=intent,
+                question=message,
+                knowledge_list=knowledge_list,
+                limit=3,
+                user_id=user.id,
+                use_smart_recommendation=False
+            )
+        except Exception:
+            recommended_doctors_all = []
 
         # 基于上下文与历史推荐记录，过滤掉之前已经推荐过的医生
         # 这样用户追问“再推荐几个”时，可以优先给出新的医生
@@ -115,19 +199,18 @@ class AIChatView(APIView):
         cur_disease = intent.get("disease_category")
         cur_dept = intent.get("recommended_department")
 
-        used_doctor_ids: set[int] = set()
-        # 只看当前用户最近的一些推荐记录，且意图相同时才认为是“已经推荐过的医生”
-        recent_logs = AIRecommendationLog.objects.filter(user=user).order_by("-created_at")[:20]
+        # 过滤已推荐医生（优化：只查询需要的字段）
+        used_doctor_ids: Set[int] = set()
+        recent_logs = AIRecommendationLog.objects.filter(user=user).values('structured_intent', 'recommended_doctors').order_by("-created_at")[:20]
         for log in recent_logs:
-            log_intent = log.structured_intent or {}
+            log_intent = log.get('structured_intent') or {}
             if (
                 isinstance(log_intent, dict)
                 and log_intent.get("disease_category") == cur_disease
                 and log_intent.get("recommended_department") == cur_dept
             ):
-                docs = log.recommended_doctors or []
+                docs = log.get('recommended_doctors') or []
                 for d in docs:
-                    # 兼容两种形式：只存 id，或存完整字典
                     if isinstance(d, dict) and "id" in d:
                         used_doctor_ids.add(d["id"])
                     elif isinstance(d, int):
@@ -154,18 +237,14 @@ class AIChatView(APIView):
             knowledge_list=knowledge_list,
             recommended_doctors=recommended_doctors,
             current_datetime=current_datetime,
+            extra_info=extra_info,  # 传递用户基本信息（年龄、性别、过敏史）
         )
         
         try:
-            # 使用system prompt强调规则，降低temperature提高准确性
-            system_prompt = """你是一名专业的牙科智能助手。重要规则：
-1. 关于医生推荐：只能使用系统提供的医生列表，绝对不能编造任何医生信息（包括姓名、职称、医院等）。
-2. 如果系统没有推荐医生，只能说"建议到XX科室就诊"等通用建议，不能推荐任何具体医生。
-3. 严格遵守系统提供的所有信息，不要添加、修改或编造任何内容。"""
+            system_prompt = "你是专业的牙科智能助手。只能使用系统提供的医生列表，不能编造任何医生信息。如果没有推荐医生，只能说建议到XX科室就诊。"
             answer = call_llm(answer_prompt, system_prompt=system_prompt, temperature=0.3)
         except LLMCallError as e:
-            # 如果AI调用失败，返回友好的错误提示
-            answer = f"抱歉，AI 服务暂时不可用，请稍后重试，或直接联系线下牙科医生就诊。（错误信息：{str(e)}）"
+            answer = f"抱歉，AI 服务暂时不可用，请稍后重试，或直接联系线下牙科医生就诊。"
         
         # 7. 从AI回答中提取实际推荐的医生（确保AI推荐的医生与返回给前端的列表一致）
         ai_recommended_doctors = []
@@ -226,6 +305,11 @@ class AIChatView(APIView):
             content=answer
         )
         
+        # 记录总耗时（仅记录超过阈值的）
+        total_elapsed = time.time() - total_start_time
+        if total_elapsed > 10.0:
+            print(f"警告：AI问诊总耗时 {total_elapsed:.2f}秒")
+        
         # 9. 保存推荐日志（保存AI实际推荐的医生）
         with transaction.atomic():
             AIRecommendationLog.objects.create(
@@ -234,6 +318,26 @@ class AIChatView(APIView):
                 structured_intent=intent,
                 recommended_doctors=ai_recommended_doctors,  # 保存AI实际推荐的医生
             )
+            
+            # 9.1 记录用户行为（优化：批量创建）
+            if ai_recommended_doctors:
+                from ai_inquiry.models import UserBehavior
+                from doctors.models import Doctor
+                doctor_ids = [d.get('id') for d in ai_recommended_doctors if d.get('id')]
+                if doctor_ids:
+                    doctors = {d.id: d for d in Doctor.objects.filter(id__in=doctor_ids)}
+                    behaviors = [
+                        UserBehavior(
+                            user=user,
+                            action='click_recommendation',
+                            doctor=doctors[doctor_id],
+                            context={'source': 'ai_chat', 'intent': intent},
+                            score=1.0
+                        )
+                        for doctor_id in doctor_ids if doctor_id in doctors
+                    ]
+                    if behaviors:
+                        UserBehavior.objects.bulk_create(behaviors, ignore_conflicts=True)
         
         # 10. 组装响应（只返回AI实际推荐的医生）
         resp_data = {
@@ -250,6 +354,88 @@ class AIChatView(APIView):
 class AIChatHistoryView(APIView):
     """AI对话历史视图（分页加载，从最新消息开始）"""
     permission_classes = [IsAuthenticated]
+    
+    def post(self, request):
+        """
+        保存AI对话历史记录
+        
+        注意：消息已经在发送时自动保存到 AIChatMessage 表了（通过 /ai/chat/ 接口）
+        这个接口主要用于兼容前端，返回所有消息作为一条会话
+        
+        请求参数（可选，用于兼容）：
+        - question: 用户提问
+        - answer: AI回答
+        - files: 文件列表
+        - context: 上下文信息（JSON字符串）
+        """
+        user = request.user
+        
+        # 获取用户所有消息记录（按时间正序）
+        all_messages = AIChatMessage.objects.filter(user=user).order_by('created_at')
+        serializer = AIChatMessageSerializer(all_messages, many=True)
+        messages_data = serializer.data
+        
+        # 如果没有消息，返回空结构
+        if not messages_data:
+            return success_response({
+                'id': f'history-empty-{int(datetime.now().timestamp() * 1000)}',
+                'ts': int(datetime.now().timestamp() * 1000),
+                'preview': '',
+                'messages': [],
+                'raw': [],
+            }, '保存成功')
+        
+        # 所有消息作为一条会话
+        raw = messages_data
+        
+        # 转换为前端期望的格式
+        messages = [
+            {
+                'role': 'assistant' if m.get('role') == 'assistant' else 'user',
+                'text': m.get('content', '')
+            }
+            for m in raw
+        ]
+        
+        # 找到第一条用户消息作为预览
+        first_user = next((m for m in raw if m.get('role') == 'user'), None)
+        preview = (first_user.get('content', '') if first_user else raw[0].get('content', '') if raw else '(无内容)')[:60]
+        
+        # 生成ID和时间戳（使用第一条消息的时间戳）
+        id_part = raw[0].get('id') if raw else 0
+        try:
+            if isinstance(raw[0].get('created_at'), str):
+                from django.utils.dateparse import parse_datetime
+                msg_time = parse_datetime(raw[0]['created_at'])
+                if msg_time:
+                    from django.utils import timezone
+                    if timezone.is_naive(msg_time):
+                        msg_time = timezone.make_aware(msg_time)
+                    ts = int(msg_time.timestamp() * 1000)
+                else:
+                    ts = int(datetime.now().timestamp() * 1000)
+            else:
+                msg_time = raw[0].get('created_at')
+                if msg_time:
+                    from django.utils import timezone
+                    if timezone.is_naive(msg_time):
+                        msg_time = timezone.make_aware(msg_time)
+                    ts = int(msg_time.timestamp() * 1000)
+                else:
+                    ts = int(datetime.now().timestamp() * 1000)
+        except Exception:
+            ts = int(datetime.now().timestamp() * 1000)
+        
+        result = {
+            'id': f'history-{id_part}-{ts}',
+            'ts': ts,
+            'preview': preview,
+            'messages': messages,
+            'raw': raw,
+            'messageId': raw[0].get('id') if raw else None,
+        }
+        
+        return success_response(result, '保存成功')
     
     def get(self, request):
         """

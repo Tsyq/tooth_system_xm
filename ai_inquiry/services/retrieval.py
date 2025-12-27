@@ -1,34 +1,67 @@
 """
 知识检索与医生推荐逻辑。
-
-说明：
-- 完全基于当前项目已有模型，不额外引入 Department / Schedule 表；
-- 医生推荐主要依赖 Doctor.specialty / introduction / score / reviews 等字段。
 """
-from typing import Any, Dict, List
-
-from django.db.models import Q
-
+from typing import Any, Dict, List, Optional, Set
+from django.db.models import Q, Case, When, IntegerField
 from ai_inquiry.models import DentalKnowledgeArticle
 from doctors.models import Doctor
 
+# 专业关键词映射（统一管理，避免重复定义）
+SPECIALTY_MAPPING = {
+    '正畸': '正畸', '矫正': '正畸', '牙齿矫正': '正畸', '牙矫正': '正畸',
+    '种植': '种植', '种植牙': '种植',
+    '补牙': '补牙', '根管': '根管', '根管治疗': '根管',
+    '牙周': '牙周', '牙周病': '牙周',
+    '口腔内科': '口腔内科', '口腔外科': '口腔外科',
+    '儿童口腔': '儿童口腔', '口腔黏膜': '口腔黏膜',
+    '龋齿': '龋齿', '蛀牙': '龋齿', '牙髓': '牙髓',
+    '拔牙': '拔牙', '洗牙': '洗牙', '美白': '美白',
+}
 
-def retrieve_knowledge_snippets(question: str, limit: int = 3) -> List[DentalKnowledgeArticle]:
+
+def retrieve_knowledge_snippets(
+    question: str, 
+    limit: int = 3,
+    use_vector: bool = True
+) -> List[DentalKnowledgeArticle]:
     """
     从牙科知识库中检索与问题相关的知识条目。
 
-    使用模糊匹配（icontains），不需要问题完全一致。
+    优先使用向量检索（语义检索），如果没有向量则回退到关键词匹配。
     
     匹配策略：
-    1. 提取问题中的关键词（去除停用词）
-    2. 检查 question_pattern/title/content 中是否包含这些关键词
+    1. 优先使用向量检索（语义相似度搜索）
+    2. 如果向量检索失败或没有向量，使用关键词匹配
     
     例如：用户问"我口腔溃疡了"
-    - 提取关键词："口腔溃疡"
-    - 匹配到 question_pattern 为 "口腔溃疡,口疮,嘴巴溃疡" 的条目
-    - 匹配到 title 中包含 "口腔溃疡" 的条目
-    - 匹配到 content 中包含 "口腔溃疡" 的条目
+    - 向量检索：能匹配到"口疮"、"嘴巴溃疡"等相关内容（即使没有"口腔溃疡"这个词）
+    - 关键词匹配：只能匹配包含"口腔溃疡"的条目
     """
+    # 优先尝试向量检索（但先快速检查是否有向量数据）
+    if use_vector:
+        # 快速检查：是否有向量化的文章
+        has_vectorized_articles = DentalKnowledgeArticle.objects.filter(
+            is_active=True,
+            embedding__isnull=False
+        ).exists()
+        
+        if has_vectorized_articles:
+            try:
+                from ai_inquiry.services.vector_retrieval import retrieve_knowledge_by_vector
+                vector_results = retrieve_knowledge_by_vector(question, limit=limit, max_articles=150)
+                if vector_results:
+                    return vector_results
+            except Exception:
+                pass
+        else:
+            # 没有向量化的文章，直接跳过向量检索
+            pass
+    
+    # 回退到关键词匹配（原有逻辑）
+    # 快速检查：如果没有知识库文章，直接返回空列表
+    if not DentalKnowledgeArticle.objects.filter(is_active=True).exists():
+        return []
+    
     qs = DentalKnowledgeArticle.objects.filter(is_active=True)
     
     # 提取问题中的关键词（去除常见停用词）
@@ -76,7 +109,9 @@ def retrieve_doctors_by_intent(
     intent: Dict[str, Any], 
     question: str = "",
     knowledge_list: List[DentalKnowledgeArticle] = None,
-    limit: int = 3
+    limit: int = 3,
+    user_id: Optional[int] = None,
+    use_smart_recommendation: bool = True
 ) -> List[Dict[str, Any]]:
     """
     根据结构化意图、用户问题和知识库内容智能推荐医生。
@@ -94,17 +129,92 @@ def retrieve_doctors_by_intent(
     - hospital: 用于展示医院名称
     
     推荐策略：
-    1. 优先根据意图中的科室和病种匹配
-    2. 如果匹配结果少，根据问题关键词和知识库标签扩展匹配
-    3. 排序：在线医生 > 评分 > 评价数
+    1. 如果启用智能推荐且有用户ID，使用混合推荐（协同过滤+内容推荐+基础规则）
+    2. 否则使用基础规则推荐：
+       - 优先根据意图中的科室和病种匹配
+       - 如果匹配结果少，根据问题关键词和知识库标签扩展匹配
+       - 排序：在线医生 > 评分 > 评价数
     """
+    # 如果启用智能推荐且有用户ID，使用混合推荐
+    # 添加快速检查：如果用户行为数据不足，直接跳过智能推荐（避免性能问题）
+    if use_smart_recommendation and user_id:
+        try:
+            from ai_inquiry.models import UserBehavior
+            # 快速检查：如果用户行为数据少于20条，跳过智能推荐（避免性能问题）
+            behavior_count = UserBehavior.objects.filter(user_id=user_id).count()
+            if behavior_count < 20:
+                # 数据不足，跳过智能推荐，使用基础推荐
+                use_smart_recommendation = False
+        except Exception:
+            # 如果检查失败，也跳过智能推荐
+            use_smart_recommendation = False
+    
+    if use_smart_recommendation and user_id:
+        try:
+            from ai_inquiry.services.smart_recommendation import hybrid_recommend
+            
+            # 获取智能推荐结果
+            smart_recommendations = hybrid_recommend(
+                user_id=user_id,
+                intent=intent,
+                question=question,
+                limit=limit
+            )
+            
+            # 转换为原有格式
+            result = []
+            for rec in smart_recommendations:
+                doctor = rec['doctor']
+                hospital_name = doctor.hospital.name if doctor.hospital else ""
+                
+                good_at_parts = []
+                if doctor.specialty:
+                    good_at_parts.append(f"专科：{doctor.specialty}")
+                if doctor.introduction:
+                    good_at_parts.append(f"简介：{doctor.introduction}")
+                if doctor.experience:
+                    good_at_parts.append(f"经验：{doctor.experience}")
+                good_at = "；".join(good_at_parts) if good_at_parts else "暂无详细信息"
+                
+                result.append({
+                    "id": doctor.id,
+                    "name": doctor.name,
+                    "department_name": hospital_name,
+                    "title": doctor.title,
+                    "specialty": doctor.specialty or "",
+                    "introduction": doctor.introduction or "",
+                    "experience": doctor.experience or "",
+                    "good_at": good_at,
+                    "is_online": doctor.is_online,
+                    "score": doctor.score,
+                    "reviews": doctor.reviews,
+                    "next_available_time": None,
+                    "is_exact_match": False,  # 智能推荐不区分精确匹配
+                    "recommend_score": rec.get('score', 0.0),  # 推荐分数
+                })
+            
+            if result:
+                return result
+        except Exception as e:
+            # 智能推荐失败，回退到基础推荐
+            print(f"智能推荐失败，使用基础推荐: {e}")
+    
+    # 基础推荐逻辑（原有代码）
+    # 快速检查：如果没有医生，直接返回空列表
+    if not Doctor.objects.exists():
+        return []
+    
     dept_name = (intent.get("recommended_department") or "") if isinstance(intent, dict) else ""
     disease_category = (intent.get("disease_category") or "") if isinstance(intent, dict) else ""
     
     if knowledge_list is None:
         knowledge_list = []
 
-    doctors = Doctor.objects.select_related("hospital").all()
+    # 优化：只查询需要的字段，减少数据传输
+    doctors = Doctor.objects.select_related("hospital").only(
+        'id', 'name', 'title', 'specialty', 'introduction', 'experience',
+        'is_online', 'score', 'reviews', 'hospital__name'
+    )
 
     # 构建查询条件
     query = Q()
@@ -282,10 +392,11 @@ def retrieve_doctors_by_intent(
                         default=4,
                         output_field=IntegerField()
                     )
-                ).order_by("match_priority", "-is_online", "-score", "-reviews")
+                ).order_by("match_priority", "-is_online", "-score", "-reviews", "id")
             else:
                 # 如果没有优先级条件，按在线状态、评分、评价数排序
-                doctors = doctors.order_by("-is_online", "-score", "-reviews")
+                # 添加id作为确定性排序字段，确保相同条件下返回顺序一致
+                doctors = doctors.order_by("-is_online", "-score", "-reviews", "id")
         else:
             # 如果没有精确匹配，尝试根据问题关键词进行专业匹配排序
             # 优先匹配专业相关的医生，而不是只看评分
@@ -337,12 +448,13 @@ def retrieve_doctors_by_intent(
                         default=2,  # 没有专业匹配的医生优先级较低
                         output_field=IntegerField()
                     )
-                ).order_by("match_priority", "-is_online", "-score", "-reviews")
+                ).order_by("match_priority", "-is_online", "-score", "-reviews", "id")
             else:
                 # 如果没有专业关键词，按在线状态、评分、评价数排序
-                doctors = doctors.order_by("-is_online", "-score", "-reviews")
+                # 添加id作为确定性排序字段，确保相同条件下返回顺序一致
+                doctors = doctors.order_by("-is_online", "-score", "-reviews", "id")
     else:
-        # 如果没有匹配条件，尝试根据问题关键词进行专业匹配排序
+            # 如果没有匹配条件，尝试根据问题关键词进行专业匹配排序
         from django.db.models import Case, When, IntegerField
         priority_conditions = []
         
@@ -391,44 +503,39 @@ def retrieve_doctors_by_intent(
                     default=2,  # 没有专业匹配的医生优先级较低
                     output_field=IntegerField()
                 )
-            ).order_by("match_priority", "-is_online", "-score", "-reviews")
+            ).order_by("match_priority", "-is_online", "-score", "-reviews", "id")
         else:
             # 如果没有专业关键词，按在线状态、评分、评价数排序
-            doctors = doctors.order_by("-is_online", "-score", "-reviews")
+            # 添加id作为确定性排序字段，确保相同条件下返回顺序一致
+            doctors = doctors.order_by("-is_online", "-score", "-reviews", "id")
+    
+    # 优化：限制返回数量，只取前limit*2个（给AI更多选择，但不超过limit*2）
+    doctors_list = list(doctors[:limit * 2])
     
     result: List[Dict[str, Any]] = []
-    for d in doctors:
-        hospital_name = d.hospital.name if getattr(d, "hospital", None) else ""
-
-        # 组合医生的专长信息，包含specialty、introduction、experience
-        # 这样AI可以根据这些信息判断是否适合用户描述的症状
-        good_at_parts = []
-        if d.specialty:
-            good_at_parts.append(f"专科：{d.specialty}")
+    for d in doctors_list:
+        hospital_name = d.hospital.name if d.hospital else ""
+        good_at_parts = [f"专科：{d.specialty}"] if d.specialty else []
         if d.introduction:
             good_at_parts.append(f"简介：{d.introduction}")
         if d.experience:
             good_at_parts.append(f"经验：{d.experience}")
         
-        good_at = "；".join(good_at_parts) if good_at_parts else "暂无详细信息"
-
-        result.append(
-            {
-                "id": d.id,
-                "name": d.name,
-                "department_name": hospital_name,
-                "title": d.title,
-                "specialty": d.specialty or "",  # 专科
-                "introduction": d.introduction or "",  # 简介
-                "experience": d.experience or "",  # 经验
-                "good_at": good_at,  # 综合专长描述
-                "is_online": d.is_online,  # 是否在线，用于紧急时间推荐
-                "score": d.score,  # 评分
-                "reviews": d.reviews,  # 评价数
-                "next_available_time": None,  # 当前系统无排班表，这里先返回 None
-                "is_exact_match": has_exact_match,  # 是否为精确匹配
-            }
-        )
+        result.append({
+            "id": d.id,
+            "name": d.name,
+            "department_name": hospital_name,
+            "title": d.title,
+            "specialty": d.specialty or "",
+            "introduction": d.introduction or "",
+            "experience": d.experience or "",
+            "good_at": "；".join(good_at_parts) if good_at_parts else "暂无详细信息",
+            "is_online": d.is_online,
+            "score": d.score,
+            "reviews": d.reviews,
+            "next_available_time": None,
+            "is_exact_match": has_exact_match,
+        })
 
     return result
 
