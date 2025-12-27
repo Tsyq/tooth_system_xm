@@ -233,6 +233,29 @@ class RecordViewSet(viewsets.ModelViewSet):
             doctor.reviews = total_reviews
             doctor.save()
             
+            # 记录用户行为：评价医生（用于智能推荐）
+            try:
+                from ai_inquiry.models import UserBehavior
+                from ai_inquiry.services.user_profile import update_user_profile
+                
+                UserBehavior.objects.create(
+                    user=request.user,
+                    action='rate_doctor',
+                    doctor=doctor,
+                    context={
+                        'rating': record.rating,
+                        'comment': record.comment,
+                        'record_id': record.id
+                    },
+                    score=float(record.rating)  # 使用评价分数作为行为评分
+                )
+                
+                # 更新用户画像
+                update_user_profile(request.user, force_update=False)
+            except Exception as e:
+                # 行为记录失败不影响评价流程
+                print(f"记录用户行为失败: {e}")
+            
             return success_response(data=None, message='评价成功')
         except Exception as e:
             return error_response(message=str(e), code=400)
